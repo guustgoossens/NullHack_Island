@@ -5,12 +5,12 @@ import { type ActionCtx, internalAction } from "../_generated/server";
 import {
 	arxivFetch,
 	type ExternalResult,
-	imageSearchStub,
-	musicSearchStub,
-	pinterestSearchStub,
+	imageSearch,
+	musicSearch,
+	pinterestSearch,
 	poetryFetch,
 	webFetch,
-	webSearchStub,
+	webSearch,
 	wikipediaFetch,
 	wikipediaRandom,
 } from "./external";
@@ -126,7 +126,7 @@ async function runTool(
 			}
 			case "web_search": {
 				const query = String(toolArgs.query ?? "");
-				const res = await webSearchStub(query);
+				const res = await webSearch(query);
 				const id = await persistConsumed("web_search", query, res);
 				return {
 					toolResult: `[consumedItemId=${id}]\n${res.summary}`,
@@ -144,7 +144,7 @@ async function runTool(
 			}
 			case "image_search": {
 				const query = String(toolArgs.query ?? "");
-				const res = await imageSearchStub(query);
+				const res = await imageSearch(query);
 				const id = await persistConsumed("image_search", query, res);
 				return {
 					toolResult: `[consumedItemId=${id}]\n${res.summary}`,
@@ -153,7 +153,7 @@ async function runTool(
 			}
 			case "pinterest_search": {
 				const query = String(toolArgs.query ?? "");
-				const res = await pinterestSearchStub(query);
+				const res = await pinterestSearch(query);
 				const id = await persistConsumed("pinterest_search", query, res);
 				return {
 					toolResult: `[consumedItemId=${id}]\n${res.summary}`,
@@ -162,7 +162,7 @@ async function runTool(
 			}
 			case "music_search": {
 				const query = String(toolArgs.query ?? "");
-				const res = await musicSearchStub(query);
+				const res = await musicSearch(query);
 				const id = await persistConsumed("music_search", query, res);
 				return {
 					toolResult: `[consumedItemId=${id}]\n${res.summary}`,
