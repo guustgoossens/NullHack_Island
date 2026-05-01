@@ -40,8 +40,21 @@ const portfolioPayload = v.union(
 export default defineSchema({
 	agents: defineTable({
 		name: v.string(),
+		// Empty until the self-genesis pass writes one. UI should treat empty as "still cooking".
 		birthSeed: v.string(),
 		startingRoomPrompt: v.string(),
+		// Self-genesis lifecycle. Until "ready", the tick scheduler holds off so
+		// the agent's first phase has its own seed in context. Optional so that
+		// agents born before this field existed remain valid (they're treated
+		// as already-ready by the runtime).
+		genesisStatus: v.optional(
+			v.union(
+				v.literal("pending"),
+				v.literal("ready"),
+				v.literal("failed"),
+			),
+		),
+		genesisError: v.optional(v.string()),
 		status: v.union(
 			v.literal("alive"),
 			v.literal("paused"),
@@ -56,9 +69,13 @@ export default defineSchema({
 		secondsPerYear: v.number(),
 		nextPhaseAt: v.number(),
 
-		// Cost guardrails.
+		// Cost / output guardrails.
 		lifetimeCostUsd: v.number(),
 		lifetimeCostCapUsd: v.number(),
+		// Hard ceiling on output tokens an agent may emit per phase across all
+		// tool-loop turns. Caps runaway loops independently of the cost cap.
+		// Optional for backwards compatibility — code falls back to a default.
+		maxOutputTokensPerPhase: v.optional(v.number()),
 
 		bornAt: v.number(),
 	})
@@ -223,4 +240,17 @@ export default defineSchema({
 		costUsd: v.number(),
 		error: v.optional(v.string()),
 	}).index("by_agent", ["agentId"]),
+
+	// 8-axis personality vector, one row per assessment. Schema is permissive
+	// (the scores object) — axis keys live in convex/lib/personality.ts and are
+	// validated in code, so adding/removing axes doesn't require a migration.
+	personalityScores: defineTable({
+		agentId: v.id("agents"),
+		year: v.number(),
+		origin: v.union(v.literal("birth"), v.literal("yearly")),
+		// Map of axis key -> score (1..10).
+		scores: v.any(),
+		rationale: v.optional(v.string()),
+		creationPhaseId: v.optional(v.id("creationPhases")),
+	}).index("by_agent_and_year", ["agentId", "year"]),
 });
