@@ -12,8 +12,6 @@ export function BirthModal({
 }) {
 	const birth = useMutation(api.birth.birth);
 	const [name, setName] = useState("");
-	const [birthSeed, setBirthSeed] = useState("");
-	const [roomPrompt, setRoomPrompt] = useState("");
 	const [secondsPerYear, setSecondsPerYear] = useState(120);
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -33,13 +31,9 @@ export function BirthModal({
 		try {
 			await birth({
 				name: name.trim(),
-				birthSeed: birthSeed.trim(),
-				startingRoomPrompt: roomPrompt.trim(),
 				secondsPerYear,
 			});
 			setName("");
-			setBirthSeed("");
-			setRoomPrompt("");
 			onClose();
 		} catch (err) {
 			setError(err instanceof Error ? err.message : String(err));
@@ -60,7 +54,7 @@ export function BirthModal({
 						Birth a new agent
 					</h2>
 					<p className="font-serif italic text-stone-500 text-sm mt-1">
-						a name, a temperament, a first room. they'll do the rest.
+						a name, a pace. they pick their own seed and their own room.
 					</p>
 				</div>
 
@@ -71,30 +65,6 @@ export function BirthModal({
 						onChange={(e) => setName(e.target.value)}
 						placeholder="Mira, Lior, Andros…"
 						className="w-full px-3 py-2 border border-stone-300 bg-white font-serif text-lg focus:border-stone-600 focus:outline-none"
-					/>
-				</Field>
-
-				<Field
-					label="Birth seed"
-					hint="2–4 sentences of starting temperament. Concrete words, no clichés."
-				>
-					<textarea
-						required
-						value={birthSeed}
-						onChange={(e) => setBirthSeed(e.target.value)}
-						rows={4}
-						placeholder="melancholic, drawn to pattern, distrusts the obvious, was born already tired…"
-						className="w-full px-3 py-2 border border-stone-300 bg-white font-serif italic text-stone-700 focus:border-stone-600 focus:outline-none resize-none"
-					/>
-				</Field>
-
-				<Field label="Starting room" hint="One bare sketch.">
-					<input
-						required
-						value={roomPrompt}
-						onChange={(e) => setRoomPrompt(e.target.value)}
-						placeholder="a small white room, one window, a wooden chair"
-						className="w-full px-3 py-2 border border-stone-300 bg-white font-serif text-stone-700 focus:border-stone-600 focus:outline-none"
 					/>
 				</Field>
 
@@ -114,6 +84,12 @@ export function BirthModal({
 						</span>
 					</div>
 				</Field>
+
+				<p className="font-serif italic text-xs text-stone-500 leading-relaxed border-l-2 border-stone-300 pl-3">
+					On birth, the agent runs a one-shot self-genesis: it writes its own
+					birth seed and rates itself on eight personality axes. The room
+					starts as a blank canvas you don't see them write — that comes later.
+				</p>
 
 				{error && (
 					<div className="text-sm text-red-700 font-mono bg-red-50 border border-red-200 px-3 py-2">
