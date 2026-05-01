@@ -157,12 +157,195 @@ export async function imageSearchStub(query: string): Promise<ExternalResult> {
 	};
 }
 
-export async function pinterestSearchStub(
-	query: string,
-): Promise<ExternalResult> {
+// Pinterest doesn't expose a public guest API. We hit the same internal JSON
+// resource the website's React app uses. The flow:
+//   1) GET /search/pins/?q=… to seed cookies (csrftoken, _pinterest_sess, _auth,
+//      _routing_id) and scrape the live `appVersion` from the HTML payload.
+//   2) GET /resource/BaseSearchResource/get/?source_url=…&data=… with the
+//      cookies replayed and the version-pinned headers Pinterest enforces
+//      (X-APP-VERSION, X-Pinterest-PWS-Handler, X-CSRFToken, …).
+// If Pinterest changes any of these the call 403s — that's the failure mode
+// to watch for if this stops working.
+
+const PINTEREST_BASE = "https://www.pinterest.com";
+const PINTEREST_DEFAULT_APP_VERSION = "2142b55";
+const PINTEREST_BROWSER_UA =
+	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+	"(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+
+type PinterestImage = { url: string; width?: number; height?: number };
+type PinterestPin = {
+	id?: string;
+	title?: string;
+	grid_title?: string;
+	description?: string;
+	auto_alt_text?: string;
+	alt_text?: string;
+	dominant_color?: string;
+	images?: Record<string, PinterestImage>;
+};
+
+type NormalizedPin = {
+	id: string | undefined;
+	title: string;
+	description: string;
+	altText: string;
+	imageUrl: string;
+	width: number | undefined;
+	height: number | undefined;
+	pinUrl: string | undefined;
+	dominantColor: string | undefined;
+};
+
+function pinterestExtractCookies(res: Response): string {
+	// Standard fetch: getSetCookie() gives every Set-Cookie header (Node 20+/V8).
+	const all =
+		typeof (res.headers as unknown as { getSetCookie?: () => string[] })
+			.getSetCookie === "function"
+			? (res.headers as unknown as { getSetCookie: () => string[] }).getSetCookie()
+			: (res.headers.get("set-cookie") ?? "").split(/,(?=[^ ;]+=)/);
+	const jar: Record<string, string> = {};
+	for (const raw of all) {
+		const first = raw.split(";")[0]?.trim();
+		if (!first) continue;
+		const eq = first.indexOf("=");
+		if (eq <= 0) continue;
+		jar[first.slice(0, eq)] = first.slice(eq + 1);
+	}
+	return Object.entries(jar)
+		.map(([k, v]) => `${k}=${v}`)
+		.join("; ");
+}
+
+function pinterestBestImage(
+	images: Record<string, PinterestImage> | undefined,
+): PinterestImage | undefined {
+	if (!images) return undefined;
+	for (const key of ["orig", "736x", "564x", "474x", "236x"]) {
+		const img = images[key];
+		if (img?.url) return img;
+	}
+	return undefined;
+}
+
+function pinterestNormalize(pin: PinterestPin): NormalizedPin | null {
+	const img = pinterestBestImage(pin.images);
+	if (!img) return null;
 	return {
-		summary: `[stub] pinterest_search("${query}") — placeholder.`,
-		payload: { stub: true, query },
+		id: pin.id,
+		title: (pin.title ?? pin.grid_title ?? "").trim(),
+		description: (pin.description ?? "").trim(),
+		altText: pin.auto_alt_text ?? pin.alt_text ?? "",
+		imageUrl: img.url,
+		width: img.width,
+		height: img.height,
+		pinUrl: pin.id ? `${PINTEREST_BASE}/pin/${pin.id}/` : undefined,
+		dominantColor: pin.dominant_color,
+	};
+}
+
+export async function pinterestSearch(
+	query: string,
+	limit = 10,
+): Promise<ExternalResult> {
+	const trimmed = query.trim();
+	if (!trimmed) {
+		return { summary: "(empty pinterest query)", payload: { results: [] } };
+	}
+
+	const referer = `${PINTEREST_BASE}/search/pins/?q=${encodeURIComponent(trimmed)}`;
+
+	// 1) Warm up: cookies + appVersion.
+	const warmup = await fetch(referer, {
+		headers: {
+			"User-Agent": PINTEREST_BROWSER_UA,
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			"Accept-Language": "en-US,en;q=0.9",
+		},
+	});
+	if (!warmup.ok) {
+		throw new Error(`pinterest warmup ${warmup.status}`);
+	}
+	const cookieHeader = pinterestExtractCookies(warmup);
+	const csrf = /(?:^|;\s*)csrftoken=([^;]+)/.exec(cookieHeader)?.[1] ?? "";
+	const html = await warmup.text();
+	const appVersion =
+		/"appVersion"\s*:\s*"([^"]+)"/.exec(html)?.[1] ?? PINTEREST_DEFAULT_APP_VERSION;
+
+	// 2) Paginate the resource endpoint until we have `limit` usable pins.
+	const collected: NormalizedPin[] = [];
+	let bookmark: string | undefined;
+	for (let page = 0; page < 5 && collected.length < limit; page++) {
+		const options: Record<string, unknown> = {
+			query: trimmed,
+			scope: "pins",
+			page_size: 25,
+			auto_correction_disabled: false,
+			filters: "",
+			top_pin_id: "",
+			appliedProductFilters: "---",
+			article: "",
+		};
+		if (bookmark) options.bookmarks = [bookmark];
+		const params = new URLSearchParams({
+			source_url: `/search/pins/?q=${encodeURIComponent(trimmed)}`,
+			data: JSON.stringify({ options, context: {} }),
+		});
+
+		const res = await fetch(
+			`${PINTEREST_BASE}/resource/BaseSearchResource/get/?${params.toString()}`,
+			{
+				headers: {
+					"User-Agent": PINTEREST_BROWSER_UA,
+					Accept: "application/json, text/javascript, */*; q=0.01",
+					"Accept-Language": "en-US,en;q=0.9",
+					Referer: referer,
+					"X-Requested-With": "XMLHttpRequest",
+					"X-APP-VERSION": appVersion,
+					"X-Pinterest-AppState": "active",
+					"X-Pinterest-Source-Url": `/search/pins/?q=${encodeURIComponent(trimmed)}`,
+					"X-Pinterest-PWS-Handler": "www/search/[scope].js",
+					"X-CSRFToken": csrf,
+					"Screen-Dpr": "2",
+					Cookie: cookieHeader,
+				},
+			},
+		);
+		if (!res.ok) {
+			throw new Error(`pinterest resource ${res.status}: ${await res.text()}`);
+		}
+		const j = (await res.json()) as {
+			resource_response?: {
+				data?: { results?: PinterestPin[]; bookmark?: string };
+			};
+			resource?: { options?: { bookmarks?: string[] } };
+		};
+		const data = j.resource_response?.data ?? {};
+		for (const pin of data.results ?? []) {
+			const n = pinterestNormalize(pin);
+			if (n) collected.push(n);
+			if (collected.length >= limit) break;
+		}
+		const next =
+			data.bookmark ?? j.resource?.options?.bookmarks?.[0] ?? undefined;
+		if (!next || next === "-end-" || next === bookmark) break;
+		bookmark = next;
+	}
+
+	const top = collected.slice(0, limit);
+	const summary = top.length
+		? `pinterest_search("${trimmed}") — ${top.length} pins\n` +
+			top
+				.map(
+					(p, i) =>
+						`${i + 1}. ${p.title || p.altText || "(untitled)"}\n   ${p.imageUrl}`,
+				)
+				.join("\n")
+		: `pinterest_search("${trimmed}") — no results`;
+
+	return {
+		summary,
+		payload: { query: trimmed, count: top.length, results: top },
 	};
 }
 

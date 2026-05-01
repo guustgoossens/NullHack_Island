@@ -7,7 +7,7 @@ import {
 	type ExternalResult,
 	imageSearchStub,
 	musicSearchStub,
-	pinterestSearchStub,
+	pinterestSearch,
 	poetryFetch,
 	webFetch,
 	webSearchStub,
@@ -153,7 +153,7 @@ async function runTool(
 			}
 			case "pinterest_search": {
 				const query = String(toolArgs.query ?? "");
-				const res = await pinterestSearchStub(query);
+				const res = await pinterestSearch(query);
 				const id = await persistConsumed("pinterest_search", query, res);
 				return {
 					toolResult: `[consumedItemId=${id}]\n${res.summary}`,
