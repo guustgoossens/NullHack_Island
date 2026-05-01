@@ -115,7 +115,35 @@ export function PortfolioRenderInline({
 			);
 		}
 
-		case "external":
+		case "external": {
+			// Pinterest / image_search curations now carry a direct image URL,
+			// so we render the pin inline. Anything else (or a convex:// stub
+			// fallback) gets the source-tool chip.
+			const isImageHost =
+				item.medium === "found_image" &&
+				p.url.startsWith("http") &&
+				/(\.jpg|\.jpeg|\.png|\.webp|\.gif|i\.pinimg\.com|images?\.|\?format=)/i.test(
+					p.url,
+				);
+			if (isImageHost) {
+				return (
+					<a
+						href={p.url}
+						target="_blank"
+						rel="noreferrer"
+						className="block bg-stone-100 overflow-hidden"
+						style={style}
+					>
+						<img
+							src={p.url}
+							alt={item.title}
+							loading="lazy"
+							referrerPolicy="no-referrer"
+							className="w-full h-full object-cover"
+						/>
+					</a>
+				);
+			}
 			return (
 				<a
 					href={p.url}
@@ -129,6 +157,7 @@ export function PortfolioRenderInline({
 					</span>
 				</a>
 			);
+		}
 
 		default:
 			return (

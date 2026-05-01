@@ -288,6 +288,11 @@ async function runTool(
 			const consumedItemIdRaw = String(toolArgs.consumedItemId ?? "");
 			const title = String(toolArgs.title ?? "untitled");
 			const caption = String(toolArgs.caption ?? "");
+			// Optional: which result inside the consumed item to pin. Defaults
+			// to the first usable image. The agent rarely supplies this; the
+			// summary it gets back lists items in order, so index 0 ≈ "the one
+			// I named first in my reflection."
+			const resultIndexRaw = toolArgs.resultIndex;
 			const consumedItemId = consumedItemIdRaw as Id<"consumedItems">;
 			const item = await ctx.runQuery(
 				internal.tools.persist.getConsumedItem,
@@ -301,6 +306,10 @@ async function runTool(
 				};
 			}
 			const medium = mediumForTool(item.tool);
+			const idx = Number.isFinite(Number(resultIndexRaw))
+				? Math.max(0, Math.floor(Number(resultIndexRaw)))
+				: 0;
+			const payload = curatedPayload(item, idx);
 			const id: Id<"portfolioItems"> = await ctx.runMutation(
 				internal.tools.persist.insertPortfolioItem,
 				{
@@ -311,17 +320,16 @@ async function runTool(
 					medium,
 					title,
 					caption,
-					payload: {
-						kind: "external",
-						url: stringifyConsumedRef(item._id),
-						sourceTool: item.tool,
-					},
+					payload,
 					citedConsumedItemIds: [consumedItemId],
 					status: "ready",
 				},
 			);
 			return {
-				toolResult: `Curated ${item.tool} item "${item.query}" into portfolio (id=${id}).`,
+				toolResult:
+					payload.kind === "external" && payload.url.startsWith("convex://")
+						? `Curated ${item.tool} item "${item.query}" into portfolio (id=${id}).`
+						: `Curated ${item.tool} item "${item.query}" into portfolio with direct media link (id=${id}).`,
 				artifactsTouched: ["portfolio"],
 			};
 		}
@@ -505,4 +513,93 @@ function mediumForTool(
 
 function stringifyConsumedRef(id: Id<"consumedItems">): string {
 	return `convex://consumedItem/${id}`;
+}
+
+type PortfolioPayload =
+	| {
+			kind: "external";
+			url: string;
+			sourceTool: string;
+	  }
+	| {
+			kind: "text";
+			text: string;
+	  };
+
+/**
+ * Build a portfolio payload from a consumed item. For Pinterest / image search
+ * we surface the actual image URL so the gallery shows the pin inline; for
+ * everything else we fall back to a convex:// reference the UI can resolve.
+ */
+function curatedPayload(
+	item: {
+		tool: string;
+		summary: string;
+		payload: unknown;
+		_id: Id<"consumedItems">;
+	},
+	resultIndex: number,
+): PortfolioPayload {
+	if (item.tool === "pinterest_search") {
+		const url = pickPinterestUrl(item.payload, resultIndex);
+		if (url) {
+			return { kind: "external", url, sourceTool: "pinterest_search" };
+		}
+	}
+	if (item.tool === "image_search") {
+		const url = pickImageSearchUrl(item.payload, resultIndex);
+		if (url) {
+			return { kind: "external", url, sourceTool: "image_search" };
+		}
+	}
+	if (item.tool === "web_fetch" || item.tool === "wikipedia") {
+		const url = pickPageUrl(item.payload);
+		if (url) {
+			return { kind: "external", url, sourceTool: item.tool };
+		}
+	}
+	return {
+		kind: "external",
+		url: stringifyConsumedRef(item._id),
+		sourceTool: item.tool,
+	};
+}
+
+function pickPinterestUrl(payload: unknown, idx: number): string | null {
+	const results = (payload as { results?: unknown[] } | null)?.results;
+	if (!Array.isArray(results) || results.length === 0) return null;
+	const r = results[Math.min(idx, results.length - 1)] as
+		| { image_url?: unknown; pin_url?: unknown }
+		| null;
+	if (typeof r?.image_url === "string" && r.image_url.startsWith("http")) {
+		return r.image_url;
+	}
+	if (typeof r?.pin_url === "string" && r.pin_url.startsWith("http")) {
+		return r.pin_url;
+	}
+	return null;
+}
+
+function pickImageSearchUrl(payload: unknown, idx: number): string | null {
+	const results = (payload as { results?: unknown[] } | null)?.results;
+	if (!Array.isArray(results) || results.length === 0) return null;
+	const r = results[Math.min(idx, results.length - 1)] as
+		| { image_url?: unknown; thumbnail?: unknown; page_url?: unknown }
+		| null;
+	if (typeof r?.image_url === "string" && r.image_url.startsWith("http")) {
+		return r.image_url;
+	}
+	if (typeof r?.thumbnail === "string" && r.thumbnail.startsWith("http")) {
+		return r.thumbnail;
+	}
+	if (typeof r?.page_url === "string" && r.page_url.startsWith("http")) {
+		return r.page_url;
+	}
+	return null;
+}
+
+function pickPageUrl(payload: unknown): string | null {
+	const url = (payload as { url?: unknown } | null)?.url;
+	if (typeof url === "string" && url.startsWith("http")) return url;
+	return null;
 }

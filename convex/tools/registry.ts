@@ -204,7 +204,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "portfolio_curate",
 		description:
-			"Save something you have already consumed (a wikipedia article, a poem, a found image, a song) into your portfolio with your own commentary on why it matters.",
+			"Save something you have already consumed (a wikipedia article, a poem, a found image, a song) into your portfolio with your own commentary on why it matters. For pinterest_search and image_search items, the first matching image is pinned to your portfolio inline.",
 		category: "create",
 		artifactsTouched: ["portfolio"],
 		inputSchema: {
@@ -214,6 +214,12 @@ export const CREATE_TOOLS: ToolDef[] = [
 					type: "string",
 					description:
 						"The id of a consumedItems row from the recent feed. Pass the exact id string.",
+				},
+				resultIndex: {
+					type: "integer",
+					description:
+						"For pinterest_search / image_search items, which result in the list to keep (0 = first). Defaults to 0.",
+					minimum: 0,
 				},
 				title: { type: "string" },
 				caption: {
