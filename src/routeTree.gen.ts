@@ -15,6 +15,7 @@ import { Route as AgentsAgentIdIndexRouteImport } from './routes/agents/$agentId
 import { Route as AgentsAgentIdTimelineRouteImport } from './routes/agents/$agentId/timeline'
 import { Route as AgentsAgentIdRoomRouteImport } from './routes/agents/$agentId/room'
 import { Route as AgentsAgentIdPortfolioRouteImport } from './routes/agents/$agentId/portfolio'
+import { Route as AgentsAgentIdPersonalityRouteImport } from './routes/agents/$agentId/personality'
 import { Route as AgentsAgentIdFeedRouteImport } from './routes/agents/$agentId/feed'
 import { Route as AgentsAgentIdBrainRouteImport } from './routes/agents/$agentId/brain'
 
@@ -48,6 +49,12 @@ const AgentsAgentIdPortfolioRoute = AgentsAgentIdPortfolioRouteImport.update({
   path: '/portfolio',
   getParentRoute: () => AgentsAgentIdRouteRoute,
 } as any)
+const AgentsAgentIdPersonalityRoute =
+  AgentsAgentIdPersonalityRouteImport.update({
+    id: '/personality',
+    path: '/personality',
+    getParentRoute: () => AgentsAgentIdRouteRoute,
+  } as any)
 const AgentsAgentIdFeedRoute = AgentsAgentIdFeedRouteImport.update({
   id: '/feed',
   path: '/feed',
@@ -64,6 +71,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AgentsAgentIdRouteRouteWithChildren
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
+  '/agents/$agentId/personality': typeof AgentsAgentIdPersonalityRoute
   '/agents/$agentId/portfolio': typeof AgentsAgentIdPortfolioRoute
   '/agents/$agentId/room': typeof AgentsAgentIdRoomRoute
   '/agents/$agentId/timeline': typeof AgentsAgentIdTimelineRoute
@@ -73,6 +81,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
+  '/agents/$agentId/personality': typeof AgentsAgentIdPersonalityRoute
   '/agents/$agentId/portfolio': typeof AgentsAgentIdPortfolioRoute
   '/agents/$agentId/room': typeof AgentsAgentIdRoomRoute
   '/agents/$agentId/timeline': typeof AgentsAgentIdTimelineRoute
@@ -84,6 +93,7 @@ export interface FileRoutesById {
   '/agents/$agentId': typeof AgentsAgentIdRouteRouteWithChildren
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
+  '/agents/$agentId/personality': typeof AgentsAgentIdPersonalityRoute
   '/agents/$agentId/portfolio': typeof AgentsAgentIdPortfolioRoute
   '/agents/$agentId/room': typeof AgentsAgentIdRoomRoute
   '/agents/$agentId/timeline': typeof AgentsAgentIdTimelineRoute
@@ -96,6 +106,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/agents/$agentId/brain'
     | '/agents/$agentId/feed'
+    | '/agents/$agentId/personality'
     | '/agents/$agentId/portfolio'
     | '/agents/$agentId/room'
     | '/agents/$agentId/timeline'
@@ -105,6 +116,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agents/$agentId/brain'
     | '/agents/$agentId/feed'
+    | '/agents/$agentId/personality'
     | '/agents/$agentId/portfolio'
     | '/agents/$agentId/room'
     | '/agents/$agentId/timeline'
@@ -115,6 +127,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/agents/$agentId/brain'
     | '/agents/$agentId/feed'
+    | '/agents/$agentId/personality'
     | '/agents/$agentId/portfolio'
     | '/agents/$agentId/room'
     | '/agents/$agentId/timeline'
@@ -170,6 +183,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsAgentIdPortfolioRouteImport
       parentRoute: typeof AgentsAgentIdRouteRoute
     }
+    '/agents/$agentId/personality': {
+      id: '/agents/$agentId/personality'
+      path: '/personality'
+      fullPath: '/agents/$agentId/personality'
+      preLoaderRoute: typeof AgentsAgentIdPersonalityRouteImport
+      parentRoute: typeof AgentsAgentIdRouteRoute
+    }
     '/agents/$agentId/feed': {
       id: '/agents/$agentId/feed'
       path: '/feed'
@@ -190,6 +210,7 @@ declare module '@tanstack/react-router' {
 interface AgentsAgentIdRouteRouteChildren {
   AgentsAgentIdBrainRoute: typeof AgentsAgentIdBrainRoute
   AgentsAgentIdFeedRoute: typeof AgentsAgentIdFeedRoute
+  AgentsAgentIdPersonalityRoute: typeof AgentsAgentIdPersonalityRoute
   AgentsAgentIdPortfolioRoute: typeof AgentsAgentIdPortfolioRoute
   AgentsAgentIdRoomRoute: typeof AgentsAgentIdRoomRoute
   AgentsAgentIdTimelineRoute: typeof AgentsAgentIdTimelineRoute
@@ -199,6 +220,7 @@ interface AgentsAgentIdRouteRouteChildren {
 const AgentsAgentIdRouteRouteChildren: AgentsAgentIdRouteRouteChildren = {
   AgentsAgentIdBrainRoute: AgentsAgentIdBrainRoute,
   AgentsAgentIdFeedRoute: AgentsAgentIdFeedRoute,
+  AgentsAgentIdPersonalityRoute: AgentsAgentIdPersonalityRoute,
   AgentsAgentIdPortfolioRoute: AgentsAgentIdPortfolioRoute,
   AgentsAgentIdRoomRoute: AgentsAgentIdRoomRoute,
   AgentsAgentIdTimelineRoute: AgentsAgentIdTimelineRoute,

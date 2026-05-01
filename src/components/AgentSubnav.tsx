@@ -8,6 +8,7 @@ const items: Item[] = [
 	{ to: "/agents/$agentId/room", label: "Room" },
 	{ to: "/agents/$agentId/portfolio", label: "Portfolio" },
 	{ to: "/agents/$agentId/feed", label: "Feed" },
+	{ to: "/agents/$agentId/personality", label: "Personality" },
 ];
 
 export function AgentSubnav() {
