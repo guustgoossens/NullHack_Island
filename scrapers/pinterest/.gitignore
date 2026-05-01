@@ -1,0 +1,9 @@
+# Downloaded images — keep them local, never commit
+images/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
