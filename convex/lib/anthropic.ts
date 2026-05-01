@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-export const TICK_MODEL = "claude-sonnet-4-6";
+export const TICK_MODEL = "claude-haiku-4-5-20251001";
 export const OBSERVER_MODEL = "claude-haiku-4-5-20251001";
 
 export function getAnthropic(): Anthropic {

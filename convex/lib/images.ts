@@ -1,16 +1,25 @@
-import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 
-export const IMAGE_MODEL = "gpt-image-2";
+// "Nano Banana" — Google's Gemini 2.5 Flash Image model.
+export const IMAGE_MODEL = "gemini-2.5-flash-image";
 
-export function getOpenAI(): OpenAI {
-	const apiKey = process.env.OPENAI_API_KEY;
+export function getGenAI(): GoogleGenAI {
+	const apiKey = process.env.GEMINI_API_KEY;
 	if (!apiKey) {
 		throw new Error(
-			"OPENAI_API_KEY is not set. Set it via `npx convex env set OPENAI_API_KEY <key>`.",
+			"GEMINI_API_KEY is not set. Set it via `npx convex env set GEMINI_API_KEY <key>`.",
 		);
 	}
-	return new OpenAI({ apiKey });
+	return new GoogleGenAI({ apiKey });
 }
+
+type Size = "1024x1024" | "1024x1536" | "1536x1024";
+
+const ASPECT_RATIO: Record<Size, string> = {
+	"1024x1024": "1:1",
+	"1024x1536": "2:3",
+	"1536x1024": "3:2",
+};
 
 /**
  * Generate an image and return raw PNG bytes.
@@ -18,21 +27,26 @@ export function getOpenAI(): OpenAI {
  */
 export async function generateImage(
 	prompt: string,
-	size: "1024x1024" | "1024x1536" | "1536x1024" = "1024x1024",
+	size: Size = "1024x1024",
 ): Promise<ArrayBuffer> {
-	const openai = getOpenAI();
-	const result = await openai.images.generate({
+	const ai = getGenAI();
+	const response = await ai.models.generateContent({
 		model: IMAGE_MODEL,
-		prompt,
-		size,
-		n: 1,
+		contents: prompt,
+		config: {
+			imageConfig: { aspectRatio: ASPECT_RATIO[size] },
+		},
 	});
-	const b64 = result.data?.[0]?.b64_json;
-	if (!b64) {
-		throw new Error("Image generation returned no b64_json payload");
+
+	const parts = response.candidates?.[0]?.content?.parts ?? [];
+	for (const part of parts) {
+		const data = part.inlineData?.data;
+		if (data) {
+			const bin = atob(data);
+			const bytes = new Uint8Array(bin.length);
+			for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+			return bytes.buffer;
+		}
 	}
-	const bin = atob(b64);
-	const bytes = new Uint8Array(bin.length);
-	for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-	return bytes.buffer;
+	throw new Error("Image generation returned no inline image data");
 }

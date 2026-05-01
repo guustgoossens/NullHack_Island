@@ -21,5 +21,5 @@ export function anthropicCostUsd(
 	);
 }
 
-// gpt-image-2: ~$0.04 per 1024x1024 image (rough order). Update when prices firm up.
-export const IMAGE_GEN_USD_PER_IMAGE = 0.04;
+// gemini-2.5-flash-image (nano banana): ~1290 output tokens per image at $30/1M = ~$0.039/image.
+export const IMAGE_GEN_USD_PER_IMAGE = 0.039;
