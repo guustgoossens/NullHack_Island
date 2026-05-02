@@ -40,6 +40,23 @@ const portfolioPayload = v.union(
 export default defineSchema({
 	agents: defineTable({
 		name: v.string(),
+		// "individual" = a normal living agent. "commons" = a shared agent that
+		// only wakes during cohort gatherings to synthesize a shared culture.
+		// Optional for backwards compatibility — missing == "individual".
+		kind: v.optional(
+			v.union(v.literal("individual"), v.literal("commons")),
+		),
+		// Optional cohort membership. When set, this agent participates in
+		// gatherings every N years with the rest of the cohort.
+		cohortId: v.optional(v.id("cohorts")),
+		// True when an individual agent has just completed a year that triggers
+		// a gathering and is barrier-paused waiting for its peers. Cleared when
+		// the gathering completes.
+		gatheringWait: v.optional(v.boolean()),
+		// The year-N this agent is waiting at (the year just completed, before
+		// the clock advances). Lets the cohort barrier match agents to a
+		// gathering window.
+		gatheringWaitForYear: v.optional(v.number()),
 		// Empty until the self-genesis pass writes one. UI should treat empty as "still cooking".
 		birthSeed: v.string(),
 		startingRoomPrompt: v.string(),
@@ -87,7 +104,63 @@ export default defineSchema({
 		bornAt: v.number(),
 	})
 		.index("by_status_and_nextPhaseAt", ["status", "nextPhaseAt"])
-		.index("by_status", ["status"]),
+		.index("by_status", ["status"])
+		.index("by_cohort", ["cohortId"]),
+
+	// A demo cohort: 8 individual agents + 1 commons. The cohort has its own
+	// gathering rhythm; every `gatheringEveryNYears` years the individuals
+	// barrier-pause, run a multi-round gathering, and the commons synthesizes
+	// the result into its shared brain/room/portfolio.
+	cohorts: defineTable({
+		name: v.string(),
+		individualIds: v.array(v.id("agents")),
+		commonsId: v.id("agents"),
+		gatheringEveryNYears: v.number(),
+		status: v.union(v.literal("active"), v.literal("retired")),
+		createdAt: v.number(),
+	}),
+
+	// One row per cohort gathering event.
+	gatherings: defineTable({
+		cohortId: v.id("cohorts"),
+		// The year-N the gathering is FOR (the year just completed by every
+		// individual). Commons uses the same number as its own creation year.
+		year: v.number(),
+		status: v.union(
+			v.literal("pending"),
+			v.literal("running"),
+			v.literal("synthesizing"),
+			v.literal("completed"),
+			v.literal("failed"),
+		),
+		startedAt: v.number(),
+		completedAt: v.optional(v.number()),
+		errorMessage: v.optional(v.string()),
+		// Set when the commons creation pass produces its three-artifact triple.
+		commonsCreationPhaseId: v.optional(v.id("creationPhases")),
+		costUsd: v.optional(v.number()),
+	}).index("by_cohort_and_year", ["cohortId", "year"]),
+
+	// One row per breakout room within a gathering. Round 1 has 4 (pairs),
+	// round 2 has 2 (fours), round 3 has 1 (full circle of 8).
+	breakoutRooms: defineTable({
+		gatheringId: v.id("gatherings"),
+		round: v.number(), // 1, 2, or 3
+		// Order matters — the conversation rotates through participants in
+		// this order.
+		participantIds: v.array(v.id("agents")),
+		// The conversation transcript. Each utterance is one agent's turn.
+		transcript: v.array(
+			v.object({
+				agentId: v.id("agents"),
+				text: v.string(),
+			}),
+		),
+		startedAt: v.number(),
+		completedAt: v.optional(v.number()),
+	})
+		.index("by_gathering_and_round", ["gatheringId", "round"])
+		.index("by_gathering", ["gatheringId"]),
 
 	consumptionPhases: defineTable({
 		agentId: v.id("agents"),

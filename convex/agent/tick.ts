@@ -47,6 +47,10 @@ export const tickConsumption = internalAction({
 			agentId,
 		});
 		if (!agent || agent.status !== "alive") return;
+		// Commons agents never run normal phases — they only wake during gatherings.
+		if ((agent.kind ?? "individual") === "commons") return;
+		// Barrier-paused at a gathering — wait for the gathering to release us.
+		if (agent.gatheringWait) return;
 
 		const consumptionPhaseId: Id<"consumptionPhases"> = await ctx.runMutation(
 			internal.tools.persist.insertConsumptionPhase,
@@ -117,6 +121,8 @@ export const tickCreation = internalAction({
 			agentId,
 		});
 		if (!agent || agent.status !== "alive") return;
+		if ((agent.kind ?? "individual") === "commons") return;
+		if (agent.gatheringWait) return;
 
 		const creationPhaseId: Id<"creationPhases"> = await ctx.runMutation(
 			internal.tools.persist.insertCreationPhase,
@@ -294,13 +300,48 @@ async function scheduleNext(ctx: ActionCtx, agentId: Id<"agents">) {
 		agentId,
 	});
 	if (!agent) return;
-	if (agent.status !== "alive") return;
 	if (agent.currentYear >= 60) return;
+
+	// Cohort barrier: if an individual cohort agent just finished a year-N
+	// creation phase where N is a multiple of the cohort's gatheringEveryNYears,
+	// pause without advancing the clock. The gathering action will release
+	// the agent (advance clock + reschedule) once synthesis completes.
+	const justFinishedCreation = agent.currentPhaseInYear === 1;
+	if (
+		justFinishedCreation &&
+		agent.cohortId &&
+		(agent.kind ?? "individual") === "individual"
+	) {
+		const cohort = await ctx.runQuery(internal.cohort.getCohort, {
+			cohortId: agent.cohortId,
+		});
+		const N = agent.currentYear;
+		if (
+			cohort &&
+			cohort.status === "active" &&
+			N > 0 &&
+			N % cohort.gatheringEveryNYears === 0
+		) {
+			await ctx.runMutation(internal.cohort.enterGatheringWait, {
+				agentId,
+				forYear: N,
+			});
+			await ctx.runMutation(internal.cohort.maybeFireGathering, {
+				cohortId: agent.cohortId,
+				forYear: N,
+			});
+			return;
+		}
+	}
 
 	// Year = 1 consumption phase + 1 creation phase = 2 phases.
 	const phaseDelayMs = (agent.secondsPerYear / 2) * 1000;
 	const nextPhaseAt = Date.now() + phaseDelayMs;
 
+	// Always advance the clock so currentPhaseInYear points at the *next* phase
+	// to run, even if the agent is currently paused. Resume reads this field
+	// to bootstrap the next tick — leaving it stale would make resume re-run
+	// the just-completed phase.
 	await ctx.runMutation(internal.tools.persist.advanceAgentClock, {
 		agentId,
 		nextPhaseAt,
@@ -309,7 +350,9 @@ async function scheduleNext(ctx: ActionCtx, agentId: Id<"agents">) {
 	const after = await ctx.runQuery(internal.agent.tick.getAgentForTick, {
 		agentId,
 	});
-	if (!after || after.status !== "alive") return;
+	if (!after) return;
+	// Don't schedule the next tick while paused. Resume will pick it up.
+	if (after.status !== "alive") return;
 
 	const isCreation = after.currentPhaseInYear === 1;
 	if (isCreation) {
@@ -327,7 +370,7 @@ async function scheduleNext(ctx: ActionCtx, agentId: Id<"agents">) {
 	}
 }
 
-type LoopResult = {
+export type LoopResult = {
 	allMessages: AnthropicMessage[];
 	finalText: string;
 	tokensIn: number;
@@ -335,7 +378,7 @@ type LoopResult = {
 	costUsd: number;
 };
 
-async function runLLMLoop(
+export async function runLLMLoop(
 	ctx: ActionCtx,
 	args: {
 		agentId: Id<"agents">;

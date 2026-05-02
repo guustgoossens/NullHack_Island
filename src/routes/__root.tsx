@@ -69,16 +69,32 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 function Header() {
 	return (
 		<header className="border-b border-stone-200 bg-stone-50/80 backdrop-blur sticky top-0 z-30">
-			<div className="mx-auto max-w-6xl px-6 py-4 flex items-baseline justify-between">
+			<div className="mx-auto max-w-6xl px-6 py-4 flex items-baseline justify-between gap-6">
 				<Link
 					to="/"
 					className="font-serif text-2xl tracking-tight text-stone-900 hover:text-stone-700"
 				>
 					Null<span className="italic text-stone-500">hack</span> Island
 				</Link>
-				<span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-400">
-					a life of beauty
-				</span>
+				<nav className="flex items-baseline gap-5">
+					<Link
+						to="/"
+						className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500 hover:text-stone-900"
+						activeProps={{ className: "text-stone-900" }}
+					>
+						Lives
+					</Link>
+					<Link
+						to="/island"
+						className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500 hover:text-stone-900"
+						activeProps={{ className: "text-stone-900" }}
+					>
+						Island
+					</Link>
+					<span className="font-mono text-[11px] uppercase tracking-[0.18em] text-stone-400">
+						a life of beauty
+					</span>
+				</nav>
 			</div>
 		</header>
 	);

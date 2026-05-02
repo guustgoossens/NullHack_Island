@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IslandRouteImport } from './routes/island'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgentsAgentIdRouteRouteImport } from './routes/agents/$agentId/route'
 import { Route as AgentsAgentIdIndexRouteImport } from './routes/agents/$agentId/index'
@@ -19,6 +20,11 @@ import { Route as AgentsAgentIdPersonalityRouteImport } from './routes/agents/$a
 import { Route as AgentsAgentIdFeedRouteImport } from './routes/agents/$agentId/feed'
 import { Route as AgentsAgentIdBrainRouteImport } from './routes/agents/$agentId/brain'
 
+const IslandRoute = IslandRouteImport.update({
+  id: '/island',
+  path: '/island',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -68,6 +74,7 @@ const AgentsAgentIdBrainRoute = AgentsAgentIdBrainRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/island': typeof IslandRoute
   '/agents/$agentId': typeof AgentsAgentIdRouteRouteWithChildren
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
@@ -79,6 +86,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/island': typeof IslandRoute
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
   '/agents/$agentId/personality': typeof AgentsAgentIdPersonalityRoute
@@ -90,6 +98,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/island': typeof IslandRoute
   '/agents/$agentId': typeof AgentsAgentIdRouteRouteWithChildren
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
@@ -103,6 +112,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/island'
     | '/agents/$agentId'
     | '/agents/$agentId/brain'
     | '/agents/$agentId/feed'
@@ -114,6 +124,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/island'
     | '/agents/$agentId/brain'
     | '/agents/$agentId/feed'
     | '/agents/$agentId/personality'
@@ -124,6 +135,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/island'
     | '/agents/$agentId'
     | '/agents/$agentId/brain'
     | '/agents/$agentId/feed'
@@ -136,11 +148,19 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  IslandRoute: typeof IslandRoute
   AgentsAgentIdRouteRoute: typeof AgentsAgentIdRouteRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/island': {
+      id: '/island'
+      path: '/island'
+      fullPath: '/island'
+      preLoaderRoute: typeof IslandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -232,6 +252,7 @@ const AgentsAgentIdRouteRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  IslandRoute: IslandRoute,
   AgentsAgentIdRouteRoute: AgentsAgentIdRouteRouteWithChildren,
 }
 export const routeTree = rootRouteImport
