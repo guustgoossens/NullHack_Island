@@ -34,13 +34,10 @@ function FeedPage() {
 
 	return (
 		<main className="mx-auto max-w-4xl px-6 py-10">
-			<header className="mb-8">
-				<h1 className="font-serif text-4xl text-stone-900 leading-tight">
+			<header className="mb-6">
+				<h1 className="font-serif text-2xl text-stone-900 leading-none">
 					Everything consumed
 				</h1>
-				<p className="font-serif italic text-stone-600 mt-2">
-					Grouped by year, then season.
-				</p>
 			</header>
 
 			{years.length === 0 ? (

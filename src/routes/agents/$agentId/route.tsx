@@ -49,25 +49,21 @@ function AgentLayout() {
 	return (
 		<div>
 			<section className="border-b border-stone-200 bg-stone-50">
-				<div className="mx-auto max-w-6xl px-6 py-8">
-					<div className="flex items-baseline gap-3 mb-2">
+				<div className="mx-auto max-w-6xl px-6 py-6 flex flex-wrap items-end justify-between gap-4">
+					<div className="flex items-baseline gap-4">
+						<h1 className="font-serif text-3xl text-stone-900 leading-none tracking-tight">
+							{agent.name}
+						</h1>
 						<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-400">
-							{formatStatus(agent.status)} · age {ageOf(agent)}
+							{formatStatus(agent.status)} · {ageOf(agent)}
 						</span>
+						{era && (
+							<span className="font-serif italic text-stone-600 text-sm truncate max-w-md">
+								{era.label}
+							</span>
+						)}
 					</div>
-					<div className="flex flex-wrap items-end justify-between gap-6">
-						<div>
-							<h1 className="font-serif text-5xl text-stone-900 leading-none tracking-tight">
-								{agent.name}
-							</h1>
-							{era && (
-								<p className="mt-3 font-serif italic text-stone-700 text-lg max-w-2xl">
-									{era.label}
-								</p>
-							)}
-						</div>
-						<AgentControls agent={agent} />
-					</div>
+					<AgentControls agent={agent} />
 				</div>
 			</section>
 			<AgentSubnav />

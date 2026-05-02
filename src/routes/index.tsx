@@ -15,15 +15,9 @@ function Home() {
 	return (
 		<main className="mx-auto max-w-6xl px-6 py-12">
 			<section className="flex items-end justify-between mb-10 gap-6">
-				<div className="max-w-2xl">
-					<h1 className="font-serif text-5xl text-stone-900 leading-[1.05] tracking-tight">
-						The lives so far
-					</h1>
-					<p className="font-serif italic text-stone-600 text-lg mt-3">
-						Each agent lives a sixty-year life of consumption and creation. Pick
-						one. Watch a soul crystallize.
-					</p>
-				</div>
+				<h1 className="font-serif text-4xl text-stone-900 leading-none tracking-tight">
+					The lives so far
+				</h1>
 				<button
 					type="button"
 					onClick={() => setBirthOpen(true)}
