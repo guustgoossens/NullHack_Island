@@ -21,5 +21,5 @@ export function anthropicCostUsd(
 	);
 }
 
-// gemini-2.5-flash-image (nano banana): ~1290 output tokens per image at $30/1M = ~$0.039/image.
-export const IMAGE_GEN_USD_PER_IMAGE = 0.039;
+// gemini-3.1-flash-image-preview at 1K: 1120 output tokens at ~$60/1M = ~$0.067/image.
+export const IMAGE_GEN_USD_PER_IMAGE = 0.067;

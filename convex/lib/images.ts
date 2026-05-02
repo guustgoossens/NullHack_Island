@@ -1,7 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 
-// "Nano Banana" — Google's Gemini 2.5 Flash Image model.
-export const IMAGE_MODEL = "gemini-2.5-flash-image";
+// "Nano Banana" — Google's Gemini Flash Image model. 3.1 preview adds
+// selectable resolution; we render at 1K to keep cost ~$0.067/image.
+export const IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+const IMAGE_SIZE = "1K";
 
 export function getGenAI(): GoogleGenAI {
 	const apiKey = process.env.GEMINI_API_KEY;
@@ -68,7 +70,11 @@ export async function generateImage(
 		model: IMAGE_MODEL,
 		contents: [{ role: "user", parts }],
 		config: {
-			imageConfig: { aspectRatio: ASPECT_RATIO[size] },
+			responseModalities: ["TEXT", "IMAGE"],
+			imageConfig: {
+				aspectRatio: ASPECT_RATIO[size],
+				imageSize: IMAGE_SIZE,
+			},
 		},
 	});
 
