@@ -144,7 +144,7 @@ export const tickCreation = internalAction({
 			agentId,
 			phaseRef,
 			year: agent.currentYear,
-			phaseInYear: 4,
+			phaseInYear: 1,
 			messages,
 			tools,
 			system,
@@ -171,7 +171,7 @@ export const tickCreation = internalAction({
 				agentId,
 				phaseRef,
 				year: agent.currentYear,
-				phaseInYear: 4,
+				phaseInYear: 1,
 				messages: result.allMessages,
 				tools,
 				system,
@@ -189,7 +189,12 @@ export const tickCreation = internalAction({
 			nudges++;
 		}
 
-		// Hard fallback: write no-op rows for any artifact still untouched.
+		// Hard fallback: if the agent still didn't touch every artifact after
+		// MAX_NUDGES, just flip the contract flags so the year can advance. We
+		// deliberately do *not* fabricate brain entries or portfolio items the
+		// agent never wrote — those would pollute the lifetime view with fake
+		// "(silence)" content. For room we still insert a noop version pinned to
+		// the previous prompt so the year has a room reference.
 		const phase = await ctx.runQuery(
 			internal.tools.persist.getCreationPhase,
 			{ id: creationPhaseId },
@@ -197,15 +202,7 @@ export const tickCreation = internalAction({
 		if (phase) {
 			const missing = missingArtifacts(phase);
 			for (const a of missing) {
-				if (a === "brain") {
-					await ctx.runMutation(internal.tools.persist.brainWrite, {
-						agentId,
-						creationPhaseId,
-						year: agent.currentYear,
-						path: `journal/y${agent.currentYear}.md`,
-						content: `(year ${agent.currentYear} — I had nothing to say this year.)`,
-					});
-				} else if (a === "room") {
+				if (a === "room") {
 					const currentSnap = await ctx.runQuery(
 						internal.agent.context.buildCreationContext,
 						{ agentId },
@@ -226,19 +223,8 @@ export const tickCreation = internalAction({
 					// Don't render — the room is unchanged from last year.
 				} else {
 					await ctx.runMutation(
-						internal.tools.persist.insertPortfolioItem,
-						{
-							agentId,
-							creationPhaseId,
-							year: agent.currentYear,
-							kind: "created",
-							medium: "writing",
-							title: "(silence)",
-							caption: "Nothing made this year.",
-							payload: { kind: "text", text: "" },
-							citedConsumedItemIds: [],
-							status: "ready",
-						},
+						internal.tools.persist.markArtifactTouched,
+						{ creationPhaseId, artifact: a },
 					);
 				}
 			}
@@ -306,7 +292,8 @@ async function scheduleNext(ctx: ActionCtx, agentId: Id<"agents">) {
 	if (agent.status !== "alive") return;
 	if (agent.currentYear >= 60) return;
 
-	const phaseDelayMs = (agent.secondsPerYear / 5) * 1000;
+	// Year = 1 consumption phase + 1 creation phase = 2 phases.
+	const phaseDelayMs = (agent.secondsPerYear / 2) * 1000;
 	const nextPhaseAt = Date.now() + phaseDelayMs;
 
 	await ctx.runMutation(internal.tools.persist.advanceAgentClock, {
@@ -319,7 +306,7 @@ async function scheduleNext(ctx: ActionCtx, agentId: Id<"agents">) {
 	});
 	if (!after || after.status !== "alive") return;
 
-	const isCreation = after.currentPhaseInYear === 4;
+	const isCreation = after.currentPhaseInYear === 1;
 	if (isCreation) {
 		await ctx.scheduler.runAt(
 			nextPhaseAt,

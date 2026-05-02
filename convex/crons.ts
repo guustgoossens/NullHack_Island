@@ -16,7 +16,7 @@ export const watchdog = internalAction({
 			cutoff: Date.now() - STUCK_AFTER_MS,
 		});
 		for (const agent of due) {
-			const isCreation = agent.currentPhaseInYear === 4;
+			const isCreation = agent.currentPhaseInYear === 1;
 			if (isCreation) {
 				await ctx.scheduler.runAfter(
 					0,

@@ -72,13 +72,13 @@ function TimelinePage() {
 
 	return (
 		<main className="mx-auto max-w-6xl px-6 py-10">
-			<header className="mb-8">
-				<h1 className="font-serif text-4xl text-stone-900 leading-tight">
+			<header className="mb-6 flex items-baseline justify-between">
+				<h1 className="font-serif text-2xl text-stone-900 leading-none">
 					Sixty years
 				</h1>
-				<p className="font-serif italic text-stone-600 mt-2">
-					Hover any year to peek. Click to pin.
-				</p>
+				<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-400">
+					hover · click to pin
+				</span>
 			</header>
 
 			<TimelineStrip
@@ -247,17 +247,11 @@ function TimelineStrip({
 								title={era?.label ?? `year ${year}`}
 							/>
 							<div className="flex gap-px w-full">
-								{[0, 1, 2, 3].map((p) => {
-									const has = consumption.some((c) => c.phaseInYear === p);
-									return (
-										<span
-											key={p}
-											className={`flex-1 h-1 ${
-												has ? "bg-stone-500" : "bg-stone-200"
-											}`}
-										/>
-									);
-								})}
+								<span
+									className={`flex-1 h-1 ${
+										consumption.length > 0 ? "bg-stone-500" : "bg-stone-200"
+									}`}
+								/>
 							</div>
 							<span
 								className={`block w-full h-1 ${

@@ -5,11 +5,14 @@ export function ageOf(agent: Pick<Doc<"agents">, "currentYear">): number {
 	return agent.currentYear ?? 0;
 }
 
-/** Phase-in-year 0..3 = consumption season, 4 = creation phase. */
-export function phaseLabel(phase: number): string {
-	if (phase >= 4) return "creation";
-	const seasons = ["spring", "summer", "autumn", "winter"];
-	return seasons[phase] ?? `phase ${phase}`;
+/**
+ * Label for a consumption-phase row. New phases are always 0; legacy rows
+ * carry 0..3 from the old four-seasons layout. We collapse them all to
+ * "consumption" since the per-season distinction was never meaningful to
+ * the agent and is going away from the UI.
+ */
+export function phaseLabel(_phase: number): string {
+	return "consumption";
 }
 
 export function formatStatus(status: Doc<"agents">["status"]): string {

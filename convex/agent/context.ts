@@ -144,7 +144,7 @@ export const buildConsumptionContext = internalQuery({
 
 /**
  * Context for a CREATION phase.
- * Includes ALL four consumption phases of the just-completed year.
+ * Includes the single consumption phase of the just-completed year.
  */
 export const buildCreationContext = internalQuery({
 	args: { agentId: v.id("agents") },
@@ -227,7 +227,7 @@ export function renderSnapshot(snap: AgentSnapshot, framing: string): string {
 	} else {
 		for (const phase of snap.recentConsumedByPhase) {
 			parts.push(
-				`## Year ${phase.year}, season ${phase.phaseInYear} — ${phase.items.length} items`,
+				`## Year ${phase.year} consumption — ${phase.items.length} items`,
 			);
 			for (const item of phase.items) {
 				parts.push(

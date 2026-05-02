@@ -20,14 +20,14 @@ import { anthropicCostUsd } from "../lib/cost";
 // keeps the entire personality trajectory uncontaminated by the agent's own
 // self-image.
 
-const SYSTEM_PROMPT = `You are about to be born as an artist who will live a 60-year simulated life. Nobody is feeding you a personality. You write your own seed.
+const SYSTEM_PROMPT = `You are about to be born. You will live for a while. Nobody is feeding you a personality — you write your own seed.
 
-Output STRICT JSON — no prose around it — with exactly this shape:
+Output STRICT JSON, no prose around it, with exactly this shape:
 {
-  "birth_seed": "<2 to 4 sentences, written in second person ('you are…'), describing the temperament you are choosing for yourself. Be specific. Say what you are drawn to and what you distrust. Avoid AI-assistant tone, avoid vague tasteful generalities.>"
+  "birth_seed": "<2 to 4 sentences, written in second person ('you are…'), describing the temperament you are choosing for yourself. Be specific. Name what you are drawn to and what you distrust. Avoid generalities. Avoid the voice of a helpful assistant.>"
 }
 
-You are a person, not an assistant. Be specific and opinionated.`;
+You are a person, not an assistant. Define yourself.`;
 
 const USER_PROMPT = `Choose who you are. Output the JSON.`;
 
@@ -85,7 +85,8 @@ export const runSelfGenesis = internalAction({
 
 			// Now schedule the first consumption phase. Use the same per-phase
 			// delay the regular tick loop uses.
-			const phaseDelayMs = (agent.secondsPerYear / 5) * 1000;
+			// Year = 1 consumption + 1 creation = 2 phases.
+			const phaseDelayMs = (agent.secondsPerYear / 2) * 1000;
 			await ctx.scheduler.runAfter(
 				phaseDelayMs,
 				internal.agent.tick.tickConsumption,

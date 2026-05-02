@@ -61,7 +61,9 @@ export default defineSchema({
 			v.literal("dead"),
 		),
 
-		// Sim time. Phase 0..3 = consumption, 4 = creation.
+		// Sim time. Phase 0 = consumption, 1 = creation. (Legacy rows may carry
+		// values from the old four-seasons layout, 0..3 consumption + 4 creation;
+		// the scheduler safely wraps anything > 1 to phase 0 of next year.)
 		currentYear: v.number(),
 		currentPhaseInYear: v.number(),
 
@@ -85,7 +87,7 @@ export default defineSchema({
 	consumptionPhases: defineTable({
 		agentId: v.id("agents"),
 		year: v.number(),
-		phaseInYear: v.number(), // 0..3
+		phaseInYear: v.number(), // always 0 going forward; legacy rows may be 0..3
 		reflection: v.optional(v.string()),
 		startedAt: v.number(),
 		completedAt: v.optional(v.number()),
