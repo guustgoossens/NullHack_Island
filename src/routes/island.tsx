@@ -1,12 +1,19 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
 import { CohortBirthModal } from "../components/CohortBirthModal";
 
 export const Route = createFileRoute("/island")({ component: Island });
+
+type EmotionDef = {
+	key: string;
+	label: string;
+	axis?: { dim: "x" | "y" | "z"; sign: -1 | 1 };
+	hex: string;
+};
 
 function Island() {
 	const cohorts = useQuery(api.cohort.list);
@@ -85,9 +92,18 @@ function IslandView({
 	const data = useQuery(api.cohort.islandView, { cohortId });
 	const setSpeed = useMutation(api.cohort.setCohortSpeed);
 	const [scrubYear, setScrubYear] = useState<number | null>(null);
+	const [emotionOverlay, setEmotionOverlay] = useState(false);
 	const scrub = useQuery(
 		api.cohort.stateAtYear,
 		scrubYear !== null ? { cohortId, year: scrubYear } : "skip",
+	);
+	const emotionDefs = useQuery(
+		api.emotions.definitions,
+		emotionOverlay ? {} : "skip",
+	);
+	const cohortEmotions = useQuery(
+		api.cohort.cohortLatestEmotions,
+		emotionOverlay ? { cohortId } : "skip",
 	);
 
 	if (data === undefined) {
@@ -143,11 +159,50 @@ function IslandView({
 		return scrubYear ?? 0;
 	};
 
+	const renderCell = (i: number) => (
+		<Cell
+			key={i}
+			agent={individuals[i]}
+			imageUrl={imgFor(individuals[i]?._id)}
+			era={eraFor(individuals[i]?._id)}
+			displayYear={
+				individuals[i]
+					? yearLabelFor(individuals[i] as Doc<"agents">)
+					: 0
+			}
+			hideRuntimeBadges={!liveMode}
+			emotionOverlay={emotionOverlay}
+			emotionReading={
+				individuals[i] && cohortEmotions
+					? cohortEmotions[individuals[i]!._id] ?? null
+					: null
+			}
+			emotionDefs={emotionDefs ?? null}
+		/>
+	);
+
+	const agentColors: Record<string, string> = {};
+	{
+		const palette = [
+			"#c84a3a",
+			"#7ea96a",
+			"#f4c95d",
+			"#5b6f8a",
+			"#7a4ea3",
+			"#3a6e8f",
+			"#d99aa8",
+			"#3d3d3d",
+		];
+		individuals.forEach((a, i) => {
+			agentColors[a._id] = palette[i] ?? "#1c1917";
+		});
+	}
+
 	return (
-		<main className="px-6 py-6 pb-32">
-			<div className="mx-auto max-w-7xl flex flex-wrap items-baseline justify-between gap-3 mb-6">
-				<div className="flex items-baseline gap-4">
-					<h1 className="font-serif text-3xl text-stone-900 tracking-tight">
+		<main className="flex flex-col h-[calc(100vh-65px)] overflow-hidden">
+			<header className="px-6 py-3 flex flex-wrap items-baseline justify-between gap-3 border-b border-stone-200 bg-stone-50/60 shrink-0">
+				<div className="flex items-baseline gap-4 min-w-0">
+					<h1 className="font-serif text-2xl text-stone-900 tracking-tight truncate">
 						{cohort.name}
 					</h1>
 					{cohorts.length > 1 && (
@@ -165,7 +220,7 @@ function IslandView({
 							))}
 						</select>
 					)}
-					<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-400">
+					<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-400 hidden md:inline">
 						y{minYear === maxYear ? minYear : `${minYear}–${maxYear}`}
 						{" · "}gathering every {cohort.gatheringEveryNYears}y
 					</span>
@@ -173,10 +228,17 @@ function IslandView({
 				<div className="flex items-center gap-3">
 					{activeGathering && (
 						<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-700 animate-pulse">
-							● gathering — y{activeGathering.year} ·{" "}
+							● gathering · y{activeGathering.year} ·{" "}
 							{activeGathering.status}
 						</span>
 					)}
+					<button
+						type="button"
+						onClick={() => setEmotionOverlay((v) => !v)}
+						className={`px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] border ${emotionOverlay ? "bg-stone-900 text-stone-50 border-stone-900" : "border-stone-300 hover:bg-stone-100"}`}
+					>
+						{emotionOverlay ? "● emotions" : "emotions"}
+					</button>
 					<button
 						type="button"
 						onClick={onCreate}
@@ -185,63 +247,53 @@ function IslandView({
 						+ new cohort
 					</button>
 				</div>
+			</header>
+
+			<div className="flex-1 min-h-0 flex items-center justify-center p-4 pb-20">
+				<div
+					className="grid grid-cols-3 grid-rows-3 gap-3"
+					style={{
+						width: "min(100%, calc(100vh - 180px))",
+						height: "min(100%, calc(100vh - 180px))",
+						aspectRatio: "1 / 1",
+					}}
+				>
+					{[0, 1, 2, 3].map(renderCell)}
+					<CommonsCell
+						agent={commons}
+						imageUrl={imgFor(commons?._id)}
+						gatheringCount={
+							liveMode
+								? gatherings.length
+								: gatherings.filter(
+										(g) =>
+											scrubYear !== null && g.year <= scrubYear,
+									).length
+						}
+						activeGathering={activeGathering ?? null}
+						displayYear={commons ? yearLabelFor(commons) : 0}
+						emotionOverlay={emotionOverlay}
+						individuals={individuals}
+						cohortEmotions={cohortEmotions ?? null}
+						emotionDefs={emotionDefs ?? null}
+						agentColors={agentColors}
+					/>
+					{[4, 5, 6, 7].map(renderCell)}
+				</div>
 			</div>
 
-			<div className="mx-auto max-w-7xl grid grid-cols-3 gap-4 aspect-[3/2.6]">
-				{[0, 1, 2, 3].map((i) => (
-					<Cell
-						key={i}
-						agent={individuals[i]}
-						imageUrl={imgFor(individuals[i]?._id)}
-						era={eraFor(individuals[i]?._id)}
-						displayYear={
-							individuals[i]
-								? yearLabelFor(individuals[i] as Doc<"agents">)
-								: 0
-						}
-						hideRuntimeBadges={!liveMode}
-					/>
-				))}
-				<CommonsCell
-					agent={commons}
-					imageUrl={imgFor(commons?._id)}
-					gatheringCount={
-						liveMode
-							? gatherings.length
-							: gatherings.filter(
-									(g) =>
-										scrubYear !== null && g.year <= scrubYear,
-								).length
-					}
-					activeGathering={activeGathering ?? null}
-					displayYear={commons ? yearLabelFor(commons) : 0}
-				/>
-				{[4, 5, 6, 7].map((i) => (
-					<Cell
-						key={i}
-						agent={individuals[i]}
-						imageUrl={imgFor(individuals[i]?._id)}
-						era={eraFor(individuals[i]?._id)}
-						displayYear={
-							individuals[i]
-								? yearLabelFor(individuals[i] as Doc<"agents">)
-								: 0
-						}
-						hideRuntimeBadges={!liveMode}
-					/>
-				))}
-			</div>
-
-			{activeGathering && (
-				<GatheringStrip gatheringId={activeGathering._id} agents={agents} />
-			)}
-
-			{!activeGathering && gatherings.length > 0 && (
-				<RecentGathering
-					gathering={gatherings[0]}
+			{liveMode && activeGathering && (
+				<GatheringFloatingPanel
+					gatheringId={activeGathering._id}
 					agents={agents}
 				/>
 			)}
+
+			<PrefetchYears
+				cohortId={cohortId}
+				baseYear={scrubYear ?? maxYear}
+				maxYear={maxYear}
+			/>
 
 			<BottomBar
 				liveMode={liveMode}
@@ -264,22 +316,39 @@ function Cell({
 	agent,
 	imageUrl,
 	era,
+	displayYear,
+	hideRuntimeBadges = false,
+	emotionOverlay = false,
+	emotionReading = null,
+	emotionDefs = null,
 }: {
 	agent: Doc<"agents"> | undefined;
 	imageUrl: string | null;
 	era: Doc<"eraLabels"> | null;
+	displayYear: number;
+	hideRuntimeBadges?: boolean;
+	emotionOverlay?: boolean;
+	emotionReading?: Doc<"emotionalReadings"> | null;
+	emotionDefs?: EmotionDef[] | null;
 }) {
 	if (!agent) {
 		return <div className="bg-stone-100 border border-stone-200" />;
 	}
-	const waiting = Boolean(agent.gatheringWait);
+	const waiting = !hideRuntimeBadges && Boolean(agent.gatheringWait);
+	const beingBorn =
+		!hideRuntimeBadges && agent.genesisStatus === "pending";
 	return (
 		<Link
 			to="/agents/$agentId"
 			params={{ agentId: agent._id }}
 			className="group relative bg-stone-100 border border-stone-200 overflow-hidden block hover:border-stone-500 transition-colors"
 		>
-			{imageUrl ? (
+			{emotionOverlay ? (
+				<EmotionRadarFill
+					reading={emotionReading}
+					definitions={emotionDefs}
+				/>
+			) : imageUrl ? (
 				<img
 					src={imageUrl}
 					alt={`${agent.name}'s room`}
@@ -290,17 +359,17 @@ function Cell({
 					rendering…
 				</div>
 			)}
-			<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-900/85 via-stone-900/60 to-transparent p-3">
+			<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-stone-900/85 via-stone-900/40 to-transparent px-3 py-2">
 				<div className="flex items-baseline justify-between gap-2">
-					<div className="font-serif text-xl text-stone-50 leading-none truncate">
+					<div className="font-serif text-lg text-stone-50 leading-tight truncate">
 						{agent.name}
 					</div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-300">
-						y{agent.currentYear}
+					<div className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-300 tabular-nums">
+						y{displayYear}
 					</div>
 				</div>
 				{era && (
-					<div className="mt-1 font-serif italic text-stone-200 text-xs truncate">
+					<div className="mt-0.5 font-serif italic text-stone-200/90 text-[11px] truncate">
 						{era.label}
 					</div>
 				)}
@@ -310,7 +379,7 @@ function Cell({
 					waiting
 				</div>
 			)}
-			{agent.genesisStatus === "pending" && (
+			{beingBorn && (
 				<div className="absolute top-2 left-2 px-2 py-1 bg-stone-50/90 text-stone-700 font-mono text-[9px] uppercase tracking-[0.18em]">
 					being born
 				</div>
@@ -324,11 +393,23 @@ function CommonsCell({
 	imageUrl,
 	gatheringCount,
 	activeGathering,
+	displayYear,
+	emotionOverlay = false,
+	individuals = [],
+	cohortEmotions = null,
+	emotionDefs = null,
+	agentColors = {},
 }: {
 	agent: Doc<"agents"> | null;
 	imageUrl: string | null;
 	gatheringCount: number;
 	activeGathering: Doc<"gatherings"> | null;
+	displayYear: number;
+	emotionOverlay?: boolean;
+	individuals?: Doc<"agents">[];
+	cohortEmotions?: Record<string, Doc<"emotionalReadings"> | null> | null;
+	emotionDefs?: EmotionDef[] | null;
+	agentColors?: Record<string, string>;
 }) {
 	if (!agent) {
 		return <div className="bg-stone-100 border border-stone-200" />;
@@ -339,7 +420,14 @@ function CommonsCell({
 			params={{ agentId: agent._id }}
 			className={`relative bg-stone-100 border-2 ${activeGathering ? "border-amber-500" : "border-stone-900"} overflow-hidden block`}
 		>
-			{imageUrl ? (
+			{emotionOverlay ? (
+				<EightVectorOverview
+					individuals={individuals}
+					cohortEmotions={cohortEmotions}
+					definitions={emotionDefs}
+					agentColors={agentColors}
+				/>
+			) : imageUrl ? (
 				<img
 					src={imageUrl}
 					alt="Commons"
@@ -350,18 +438,18 @@ function CommonsCell({
 					Commons
 				</div>
 			)}
-			<div className="absolute inset-x-0 top-0 bg-gradient-to-b from-stone-900/85 to-transparent p-3">
+			<div className="absolute inset-x-0 top-0 bg-gradient-to-b from-stone-900/85 to-transparent px-3 py-2">
 				<div className="flex items-baseline justify-between gap-2">
-					<div className="font-serif text-base text-stone-50 leading-none italic truncate">
+					<div className="font-serif text-base text-stone-50 leading-tight italic truncate">
 						{agent.name}
 					</div>
-					<div className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-300">
-						{gatheringCount} gathering{gatheringCount === 1 ? "" : "s"}
+					<div className="font-mono text-[9px] uppercase tracking-[0.18em] text-stone-300 tabular-nums">
+						y{displayYear} · {gatheringCount}×
 					</div>
 				</div>
 			</div>
 			{activeGathering && (
-				<div className="absolute inset-x-0 bottom-0 bg-amber-500/95 p-2 text-center font-mono text-[10px] uppercase tracking-[0.18em] text-stone-900 animate-pulse">
+				<div className="absolute inset-x-0 bottom-0 bg-amber-500/95 px-2 py-1.5 text-center font-mono text-[9px] uppercase tracking-[0.18em] text-stone-900 animate-pulse">
 					{activeGathering.status === "running"
 						? `gathering · y${activeGathering.year}`
 						: `synthesizing · y${activeGathering.year}`}
@@ -371,7 +459,9 @@ function CommonsCell({
 	);
 }
 
-function GatheringStrip({
+// Live gathering panel that floats over the right edge above the bottom bar
+// so it doesn't push the grid out of place.
+function GatheringFloatingPanel({
 	gatheringId,
 	agents,
 }: {
@@ -384,102 +474,90 @@ function GatheringStrip({
 		return (id: Id<"agents">) => m.get(id) ?? "?";
 	}, [agents]);
 	if (!detail) return null;
-	const { breakouts } = detail;
-	const sorted = [...breakouts].sort((a, b) => a.round - b.round);
+	const sorted = [...detail.breakouts].sort((a, b) => a.round - b.round);
+	const latest = sorted[sorted.length - 1];
 	return (
-		<div className="mx-auto max-w-7xl mt-6 border border-amber-300 bg-amber-50">
-			<div className="px-4 py-2 border-b border-amber-200 font-mono text-[10px] uppercase tracking-[0.2em] text-amber-900">
-				live gathering · year {detail.gathering.year}
+		<div className="fixed right-4 bottom-20 z-30 w-[360px] max-w-[calc(100vw-2rem)] border border-amber-300 bg-amber-50/95 shadow-xl backdrop-blur-sm">
+			<div className="px-3 py-2 border-b border-amber-200 font-mono text-[10px] uppercase tracking-[0.2em] text-amber-900 flex items-baseline justify-between">
+				<span>● gathering · y{detail.gathering.year}</span>
+				<span className="text-amber-700">
+					round {latest?.round ?? "?"} ·{" "}
+					{latest?.round === 1
+						? "pairs"
+						: latest?.round === 2
+							? "fours"
+							: "all eight"}
+				</span>
 			</div>
-			<div className="grid grid-cols-1 md:grid-cols-3 gap-0 divide-x divide-amber-200">
-				{[1, 2, 3].map((round) => {
-					const ofRound = sorted.filter((b) => b.round === round);
-					return (
-						<div key={round} className="p-3 max-h-64 overflow-y-auto">
-							<div className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-700 mb-2">
-								round {round} ·{" "}
-								{round === 1
-									? "pairs"
-									: round === 2
-										? "fours"
-										: "all eight"}
-							</div>
-							{ofRound.length === 0 && (
-								<div className="font-serif italic text-amber-600 text-xs">
-									(waiting…)
-								</div>
-							)}
-							{ofRound.map((b) => (
-								<div key={b._id} className="mb-3">
-									<div className="font-mono text-[9px] uppercase tracking-[0.18em] text-amber-600 mb-1">
-										{b.participantIds.map(nameOf).join(" · ")}
-									</div>
-									<div className="space-y-1">
-										{b.transcript.map((u, i) => (
-											<div key={i} className="text-xs leading-snug">
-												<span className="font-mono text-amber-800">
-													{nameOf(u.agentId)}:
-												</span>{" "}
-												<span className="font-serif text-stone-800">
-													{u.text}
-												</span>
-											</div>
-										))}
-									</div>
+			<div className="p-3 max-h-64 overflow-y-auto">
+				{!latest && (
+					<div className="font-serif italic text-amber-600 text-xs">
+						(waiting…)
+					</div>
+				)}
+				{latest && (
+					<div className="space-y-2">
+						<div className="font-mono text-[9px] uppercase tracking-[0.18em] text-amber-600">
+							{latest.participantIds.map(nameOf).join(" · ")}
+						</div>
+						<div className="space-y-1">
+							{latest.transcript.map((u, i) => (
+								<div key={i} className="text-xs leading-snug">
+									<span className="font-mono text-amber-800">
+										{nameOf(u.agentId)}:
+									</span>{" "}
+									<span className="font-serif text-stone-800">
+										{u.text}
+									</span>
 								</div>
 							))}
+							{latest.transcript.length === 0 && (
+								<div className="font-serif italic text-amber-600 text-xs">
+									(silent…)
+								</div>
+							)}
 						</div>
-					);
-				})}
+					</div>
+				)}
 			</div>
 		</div>
 	);
 }
 
-function RecentGathering({
-	gathering,
-	agents,
+// Hidden prefetcher: subscribes to the next 4 years of stateAtYear so that
+// scrubbing forward hits Convex's client cache instead of waiting on a
+// round-trip. Subscriptions are kept alive as long as this component renders.
+function PrefetchYears({
+	cohortId,
+	baseYear,
+	maxYear,
 }: {
-	gathering: Doc<"gatherings">;
-	agents: Doc<"agents">[];
+	cohortId: Id<"cohorts">;
+	baseYear: number;
+	maxYear: number;
 }) {
-	const detail = useQuery(api.cohort.gatheringDetail, {
-		gatheringId: gathering._id,
-	});
-	const nameOf = useMemo(() => {
-		const m = new Map(agents.map((a) => [a._id, a.name] as const));
-		return (id: Id<"agents">) => m.get(id) ?? "?";
-	}, [agents]);
-	if (!detail) return null;
-	const totalUtterances = detail.breakouts.reduce(
-		(n, b) => n + b.transcript.length,
-		0,
-	);
+	const cap = Math.max(maxYear, baseYear);
+	const years = [1, 2, 3, 4]
+		.map((d) => baseYear + d)
+		.filter((y) => y <= cap);
 	return (
-		<div className="mx-auto max-w-7xl mt-6 border border-stone-200 bg-white">
-			<div className="px-4 py-2 border-b border-stone-200 font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500 flex items-baseline justify-between">
-				<span>
-					last gathering · year {gathering.year} ·{" "}
-					{detail.breakouts.length} rooms · {totalUtterances} utterances
-				</span>
-				<span className="text-stone-400">{gathering.status}</span>
-			</div>
-			<div className="p-3 max-h-48 overflow-y-auto space-y-2">
-				{detail.breakouts
-					.sort((a, b) => a.round - b.round)
-					.map((b) => (
-						<div key={b._id}>
-							<span className="font-mono text-[9px] uppercase tracking-[0.18em] text-stone-400">
-								r{b.round} {b.participantIds.map(nameOf).join(" · ")}
-							</span>
-							<div className="font-serif italic text-stone-600 text-xs mt-0.5 line-clamp-2">
-								{b.transcript[0]?.text ?? "(quiet)"}
-							</div>
-						</div>
-					))}
-			</div>
-		</div>
+		<>
+			{years.map((y) => (
+				<PrefetchOne key={y} cohortId={cohortId} year={y} />
+			))}
+		</>
 	);
+}
+
+function PrefetchOne({
+	cohortId,
+	year,
+}: {
+	cohortId: Id<"cohorts">;
+	year: number;
+}) {
+	useQuery(api.cohort.stateAtYear, { cohortId, year });
+	return null;
 }
 
 function BottomBar({
@@ -508,7 +586,7 @@ function BottomBar({
 	const gatheringYearSet = new Set(gatheringYears);
 	return (
 		<div className="fixed bottom-0 inset-x-0 bg-stone-900 text-stone-50 z-20 border-t border-stone-700">
-			<div className="mx-auto max-w-7xl px-6 py-3 flex flex-wrap items-center gap-6">
+			<div className="mx-auto max-w-7xl px-6 py-2.5 flex flex-wrap items-center gap-6">
 				<div className="flex items-center gap-2 min-w-[120px]">
 					<button
 						type="button"
@@ -572,18 +650,337 @@ function BottomBar({
 	);
 }
 
-function url(
-	map: Record<string, string | null>,
-	id: Id<"agents"> | undefined,
-): string | null {
-	if (!id) return null;
-	return map[id] ?? null;
+// ---------- Emotion overlay visuals ----------
+// Mirrors the radar + vector-room visuals from
+// src/routes/agents/$agentId/personality.tsx, compacted to fit grid cells.
+
+function EmotionRadarFill({
+	reading,
+	definitions,
+}: {
+	reading: Doc<"emotionalReadings"> | null;
+	definitions: EmotionDef[] | null;
+}) {
+	if (!definitions) {
+		return (
+			<div className="w-full h-full flex items-center justify-center bg-stone-50 text-stone-400 font-mono text-[9px] uppercase tracking-[0.18em]">
+				loading…
+			</div>
+		);
+	}
+	if (!reading) {
+		return (
+			<div className="w-full h-full flex items-center justify-center bg-stone-50 text-stone-400 font-mono text-[9px] uppercase tracking-[0.18em]">
+				no reading
+			</div>
+		);
+	}
+	const e = (reading.emotions ?? {}) as Record<string, number>;
+	const W = 200;
+	const H = 200;
+	const cx = W / 2;
+	const cy = H / 2;
+	const r = 78;
+	const n = definitions.length;
+	const points = definitions.map((d, i) => {
+		const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+		const v = Math.max(0, Math.min(1, e[d.key] ?? 0));
+		return {
+			def: d,
+			value: v,
+			px: cx + Math.cos(angle) * r * v,
+			py: cy + Math.sin(angle) * r * v,
+			ax: cx + Math.cos(angle) * r,
+			ay: cy + Math.sin(angle) * r,
+			angle,
+		};
+	});
+	const grid = [0.33, 0.66, 1].map((g) =>
+		definitions
+			.map((_, i) => {
+				const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+				return `${(cx + Math.cos(angle) * r * g).toFixed(2)},${(cy + Math.sin(angle) * r * g).toFixed(2)}`;
+			})
+			.join(" "),
+	);
+	const dominantHex =
+		definitions.find((d) => d.key === reading.dominantEmotion)?.hex ?? "#1c1917";
+	return (
+		<div className="w-full h-full bg-stone-50 flex items-center justify-center">
+			<svg
+				viewBox={`0 0 ${W} ${H}`}
+				className="w-full h-full block"
+				role="img"
+				aria-label="emotion radar"
+			>
+				<title>emotion radar</title>
+				{grid.map((g, i) => (
+					<polygon
+						// biome-ignore lint/suspicious/noArrayIndexKey: ring index is stable
+						key={`g-${i}`}
+						points={g}
+						fill="none"
+						stroke="#e7e5e4"
+						strokeWidth={0.75}
+					/>
+				))}
+				{points.map((p) => (
+					<line
+						key={`r-${p.def.key}`}
+						x1={cx}
+						y1={cy}
+						x2={p.ax}
+						y2={p.ay}
+						stroke="#f5f5f4"
+						strokeWidth={0.6}
+					/>
+				))}
+				<polygon
+					points={points
+						.map((p) => `${p.px.toFixed(2)},${p.py.toFixed(2)}`)
+						.join(" ")}
+					fill={dominantHex}
+					fillOpacity={0.18}
+					stroke={dominantHex}
+					strokeWidth={1.2}
+				/>
+				{points.map((p) => (
+					<circle
+						key={`p-${p.def.key}`}
+						cx={p.px}
+						cy={p.py}
+						r={2.2}
+						fill={p.def.hex}
+						stroke="#1c1917"
+						strokeWidth={0.4}
+					/>
+				))}
+			</svg>
+		</div>
+	);
 }
 
-function era(
-	map: Record<string, Doc<"eraLabels"> | null>,
-	id: Id<"agents"> | undefined,
-): Doc<"eraLabels"> | null {
-	if (!id) return null;
-	return map[id] ?? null;
+function EightVectorOverview({
+	individuals,
+	cohortEmotions,
+	definitions,
+	agentColors,
+}: {
+	individuals: Doc<"agents">[];
+	cohortEmotions: Record<string, Doc<"emotionalReadings"> | null> | null;
+	definitions: EmotionDef[] | null;
+	agentColors: Record<string, string>;
+}) {
+	const [yaw, setYaw] = useState(-0.55);
+	const [pitch, setPitch] = useState(-0.35);
+	const dragging = useRef<{ x: number; y: number } | null>(null);
+
+	if (!definitions || !cohortEmotions) {
+		return (
+			<div className="w-full h-full flex items-center justify-center bg-stone-50 text-stone-400 font-mono text-[10px] uppercase tracking-[0.2em]">
+				loading…
+			</div>
+		);
+	}
+
+	const W = 320;
+	const H = 320;
+	const cx = W / 2;
+	const cy = H / 2;
+	const scale = 95;
+
+	const corners: [number, number, number][] = [
+		[-1, -1, -1],
+		[1, -1, -1],
+		[1, 1, -1],
+		[-1, 1, -1],
+		[-1, -1, 1],
+		[1, -1, 1],
+		[1, 1, 1],
+		[-1, 1, 1],
+	];
+	const edges: [number, number][] = [
+		[0, 1],
+		[1, 2],
+		[2, 3],
+		[3, 0],
+		[4, 5],
+		[5, 6],
+		[6, 7],
+		[7, 4],
+		[0, 4],
+		[1, 5],
+		[2, 6],
+		[3, 7],
+	];
+
+	function project([x, y, z]: [number, number, number]) {
+		const cyA = Math.cos(yaw);
+		const syA = Math.sin(yaw);
+		const x1 = cyA * x + syA * z;
+		const z1 = -syA * x + cyA * z;
+		const cp = Math.cos(pitch);
+		const sp = Math.sin(pitch);
+		const y1 = cp * y - sp * z1;
+		const z2 = sp * y + cp * z1;
+		return { sx: cx + x1 * scale, sy: cy + y1 * scale, depth: z2 };
+	}
+
+	const projectedCorners = corners.map(project);
+	const origin = project([0, 0, 0]);
+
+	const axisEnds: {
+		label: string;
+		to: [number, number, number];
+		tone: string;
+	}[] = [
+		{ label: "anger", to: [1.1, 0, 0], tone: "#c84a3a" },
+		{ label: "optimism", to: [-1.1, 0, 0], tone: "#7ea96a" },
+		{ label: "grief", to: [0, 1.1, 0], tone: "#5b6f8a" },
+		{ label: "joy", to: [0, -1.1, 0], tone: "#f4c95d" },
+		{ label: "fear", to: [0, 0, 1.1], tone: "#3d3d3d" },
+		{ label: "ego", to: [0, 0, -1.1], tone: "#7a4ea3" },
+	];
+
+	const points = individuals
+		.map((a) => {
+			const r = cohortEmotions[a._id];
+			if (!r) return null;
+			const e = (r.emotions ?? {}) as Record<string, number>;
+			const x = (e.anger ?? 0) - (e.optimism ?? 0);
+			const y = (e.grief ?? 0) - (e.joy ?? 0);
+			const z = (e.fear ?? 0) - (e.ego ?? 0);
+			const intel = e.intelligence ?? 0;
+			const tender = e.tenderness ?? 0;
+			return {
+				agent: a,
+				p: project([x, y, z]),
+				size: 3 + intel * 5,
+				glow: tender,
+				color: agentColors[a._id] ?? "#1c1917",
+			};
+		})
+		.filter((x): x is NonNullable<typeof x> => x !== null)
+		.sort((a, b) => b.p.depth - a.p.depth);
+
+	function onMouseDown(ev: React.MouseEvent) {
+		ev.preventDefault();
+		dragging.current = { x: ev.clientX, y: ev.clientY };
+	}
+	function onMouseMove(ev: React.MouseEvent) {
+		if (!dragging.current) return;
+		ev.preventDefault();
+		const dx = ev.clientX - dragging.current.x;
+		const dy = ev.clientY - dragging.current.y;
+		dragging.current = { x: ev.clientX, y: ev.clientY };
+		setYaw((y) => y + dx * 0.008);
+		setPitch((p) =>
+			Math.max(
+				-Math.PI / 2 + 0.05,
+				Math.min(Math.PI / 2 - 0.05, p + dy * 0.008),
+			),
+		);
+	}
+	function onMouseUp() {
+		dragging.current = null;
+	}
+
+	return (
+		<div className="w-full h-full bg-stone-50 flex items-center justify-center">
+			<svg
+				viewBox={`0 0 ${W} ${H}`}
+				className="w-full h-full block select-none cursor-grab active:cursor-grabbing"
+				role="img"
+				aria-label="cohort emotional vectors"
+				onMouseDown={onMouseDown}
+				onMouseMove={onMouseMove}
+				onMouseUp={onMouseUp}
+				onMouseLeave={onMouseUp}
+				onClick={(e) => e.preventDefault()}
+			>
+				<title>cohort emotional vectors</title>
+				<defs>
+					<radialGradient id="commons-halo" cx="50%" cy="50%" r="50%">
+						<stop offset="0%" stopColor="white" stopOpacity="0.55" />
+						<stop offset="100%" stopColor="white" stopOpacity="0" />
+					</radialGradient>
+				</defs>
+				{edges.map(([a, b], i) => {
+					const A = projectedCorners[a];
+					const B = projectedCorners[b];
+					return (
+						<line
+							// biome-ignore lint/suspicious/noArrayIndexKey: edges array is stable
+							key={`edge-${i}`}
+							x1={A.sx}
+							y1={A.sy}
+							x2={B.sx}
+							y2={B.sy}
+							stroke="#d6d3d1"
+							strokeWidth={0.8}
+						/>
+					);
+				})}
+				{axisEnds.map((a) => {
+					const to = project(a.to);
+					return (
+						<g key={a.label}>
+							<line
+								x1={origin.sx}
+								y1={origin.sy}
+								x2={to.sx}
+								y2={to.sy}
+								stroke={a.tone}
+								strokeOpacity={0.5}
+								strokeWidth={0.8}
+								strokeDasharray="2 3"
+							/>
+							<text
+								x={to.sx}
+								y={to.sy}
+								dx={4}
+								dy={3}
+								fontSize={8}
+								className="font-mono"
+								fill={a.tone}
+								fillOpacity={0.85}
+							>
+								{a.label}
+							</text>
+						</g>
+					);
+				})}
+				{points.map((pt) => (
+					<g key={pt.agent._id}>
+						{pt.glow > 0.05 && (
+							<circle
+								cx={pt.p.sx}
+								cy={pt.p.sy}
+								r={pt.size + 5 + pt.glow * 9}
+								fill="url(#commons-halo)"
+								opacity={0.4 + pt.glow * 0.5}
+							/>
+						)}
+						<circle
+							cx={pt.p.sx}
+							cy={pt.p.sy}
+							r={pt.size}
+							fill={pt.color}
+							stroke="#1c1917"
+							strokeWidth={0.6}
+						/>
+						<text
+							x={pt.p.sx + pt.size + 2}
+							y={pt.p.sy + 2}
+							fontSize={7}
+							className="font-mono"
+							fill="#44403c"
+						>
+							{pt.agent.name}
+						</text>
+					</g>
+				))}
+			</svg>
+		</div>
+	);
 }
