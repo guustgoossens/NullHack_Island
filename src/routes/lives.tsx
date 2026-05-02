@@ -1,4 +1,4 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { useState } from "react";
 
@@ -6,14 +6,11 @@ import { api } from "../../convex/_generated/api";
 import { AgentCard } from "../components/AgentCard";
 import { BirthModal } from "../components/BirthModal";
 
-export const Route = createFileRoute("/")({
-	beforeLoad: () => {
-		throw redirect({ to: "/island" });
-	},
-	component: Home,
+export const Route = createFileRoute("/lives")({
+	component: Lives,
 });
 
-function Home() {
+function Lives() {
 	const agents = useQuery(api.agents.list);
 	const [birthOpen, setBirthOpen] = useState(false);
 
