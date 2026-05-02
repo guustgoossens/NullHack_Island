@@ -14,3 +14,4 @@ todos.json
 
 # Convex regenerates these on every `convex dev`
 convex/_generated/
+.vercel
