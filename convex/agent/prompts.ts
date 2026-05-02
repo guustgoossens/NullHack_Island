@@ -52,7 +52,7 @@ export function consumptionFraming(args: {
   void args.phaseInYear;
   return `It is the consumption turn of year ${args.year}. ${ageString(args.year)}.
 
-Browse what calls to you. Issue any number of consume tool calls. When you've gathered enough, end your turn with a brief reflection (1–3 sentences) on what stuck. Do not call any create tools in a consumption turn.`;
+Browse what calls to you. Issue as many consume tool calls as you need. When you've gathered enough, end your turn with a brief reflection (1–3 sentences) on what stuck. Do not call any create tools in a consumption turn.`;
 }
 
 export function creationFraming(args: { year: number }): string {

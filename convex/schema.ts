@@ -71,6 +71,11 @@ export default defineSchema({
 		secondsPerYear: v.number(),
 		nextPhaseAt: v.number(),
 
+		// Anthropic model the agent itself runs on (tick + genesis). Optional
+		// for backwards compatibility — falls back to DEFAULT_AGENT_MODEL.
+		// Observer/assessment uses a fixed model and ignores this field.
+		model: v.optional(v.string()),
+
 		// Cost / output guardrails.
 		lifetimeCostUsd: v.number(),
 		lifetimeCostCapUsd: v.number(),

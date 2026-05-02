@@ -2,13 +2,17 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { mutation } from "./_generated/server";
+import { DEFAULT_AGENT_MODEL, isAgentModel } from "./lib/anthropic";
 import { BLANK_ROOM_PROMPT } from "./lib/personality";
 
-const DEFAULT_SECONDS_PER_YEAR = 120;
+// 0 means "schedule the next phase immediately when the current one finishes."
+// Set higher only if you want artificial wall-clock pacing for viewing.
+const DEFAULT_SECONDS_PER_YEAR = 0;
 const DEFAULT_LIFETIME_COST_CAP_USD = 50;
 // Hard ceiling on agent-generated tokens per phase (across all tool-loop
-// turns). Sized to ~3 full Haiku turns at 4096 + a bit of slack.
-const DEFAULT_MAX_OUTPUT_TOKENS_PER_PHASE = 14_000;
+// turns). Tight on purpose — the system prompt tells the agent to be brief,
+// and a smaller cap keeps inference latency under control.
+const DEFAULT_MAX_OUTPUT_TOKENS_PER_PHASE = 3_500;
 
 export const birth = mutation({
 	args: {
@@ -16,10 +20,15 @@ export const birth = mutation({
 		secondsPerYear: v.optional(v.number()),
 		lifetimeCostCapUsd: v.optional(v.number()),
 		maxOutputTokensPerPhase: v.optional(v.number()),
+		model: v.optional(v.string()),
 	},
 	handler: async (ctx, args) => {
 		const now = Date.now();
 		const secondsPerYear = args.secondsPerYear ?? DEFAULT_SECONDS_PER_YEAR;
+		const model =
+			args.model && isAgentModel(args.model)
+				? args.model
+				: DEFAULT_AGENT_MODEL;
 
 		const agentId: Id<"agents"> = await ctx.db.insert("agents", {
 			name: args.name,
@@ -34,6 +43,7 @@ export const birth = mutation({
 			// Real first phase is scheduled by self-genesis once it finishes;
 			// keep nextPhaseAt in the future as a placeholder.
 			nextPhaseAt: now + 60 * 60 * 1000,
+			model,
 			lifetimeCostUsd: 0,
 			lifetimeCostCapUsd:
 				args.lifetimeCostCapUsd ?? DEFAULT_LIFETIME_COST_CAP_USD,

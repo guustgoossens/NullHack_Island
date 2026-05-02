@@ -10,7 +10,7 @@ import {
 import {
 	type AnthropicMessage,
 	getAnthropic,
-	TICK_MODEL,
+	tickModelFor,
 } from "../lib/anthropic";
 import { anthropicCostUsd } from "../lib/cost";
 import {
@@ -23,13 +23,13 @@ import { renderSnapshot } from "./context";
 import { toAnthropicTools, toolsForPhase } from "../tools/registry";
 
 const MAX_TOOL_ITERS = 12;
-const MAX_NUDGES = 3;
-const MAX_TOKENS_PER_TURN = 4096;
+const MAX_NUDGES = 1;
+const MAX_TOKENS_PER_TURN = 2048;
 // Floor for the per-phase output budget. The agent record carries the real
 // limit; this guards against a misconfigured agent with 0 tokens budgeted.
-const MIN_OUTPUT_BUDGET_PER_PHASE = 2048;
+const MIN_OUTPUT_BUDGET_PER_PHASE = 1024;
 // Default for agents that predate the maxOutputTokensPerPhase field.
-const DEFAULT_OUTPUT_BUDGET_PER_PHASE = 14_000;
+const DEFAULT_OUTPUT_BUDGET_PER_PHASE = 3_500;
 
 function outputBudgetFor(agent: Doc<"agents">): number {
 	const cap = agent.maxOutputTokensPerPhase ?? DEFAULT_OUTPUT_BUDGET_PER_PHASE;
@@ -85,6 +85,7 @@ export const tickConsumption = internalAction({
 			tools,
 			system: systemPrompt(budget),
 			maxOutputTokensRemaining: budget,
+			model: tickModelFor(agent),
 		});
 
 		const reflection = result.finalText.slice(0, 4000);
@@ -139,6 +140,8 @@ export const tickCreation = internalAction({
 		let remainingBudget = totalBudget;
 		const system = systemPrompt(totalBudget);
 
+		const model = tickModelFor(agent);
+
 		// First pass.
 		let result = await runLLMLoop(ctx, {
 			agentId,
@@ -149,6 +152,7 @@ export const tickCreation = internalAction({
 			tools,
 			system,
 			maxOutputTokensRemaining: remainingBudget,
+			model,
 		});
 		remainingBudget = Math.max(0, remainingBudget - result.tokensOut);
 
@@ -177,6 +181,7 @@ export const tickCreation = internalAction({
 				system,
 				resumeFrom: true,
 				maxOutputTokensRemaining: remainingBudget,
+				model,
 			});
 			remainingBudget = Math.max(0, remainingBudget - next.tokensOut);
 			result = {
@@ -344,6 +349,7 @@ async function runLLMLoop(
 		// Output-token ceiling for this loop. We shrink max_tokens per turn so
 		// the model stays inside the budget across all tool iterations.
 		maxOutputTokensRemaining: number;
+		model: string;
 	},
 ): Promise<LoopResult> {
 	const anthropic = getAnthropic();
@@ -358,7 +364,7 @@ async function runLLMLoop(
 		if (remaining <= 0) break;
 		const turnMax = Math.max(256, Math.min(MAX_TOKENS_PER_TURN, remaining));
 		const resp = await anthropic.messages.create({
-			model: TICK_MODEL,
+			model: args.model,
 			max_tokens: turnMax,
 			system: args.system,
 			tools: args.tools,
@@ -368,7 +374,7 @@ async function runLLMLoop(
 		tokensOut += resp.usage.output_tokens;
 		remaining -= resp.usage.output_tokens;
 		costUsd += anthropicCostUsd(
-			TICK_MODEL,
+			args.model,
 			resp.usage.input_tokens,
 			resp.usage.output_tokens,
 		);

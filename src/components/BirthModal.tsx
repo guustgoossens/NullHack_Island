@@ -2,6 +2,11 @@ import { useMutation } from "convex/react";
 import { useEffect, useRef, useState } from "react";
 
 import { api } from "../../convex/_generated/api";
+import {
+	AGENT_MODELS,
+	type AgentModelId,
+	DEFAULT_AGENT_MODEL,
+} from "../../convex/lib/models";
 
 export function BirthModal({
 	open,
@@ -12,7 +17,8 @@ export function BirthModal({
 }) {
 	const birth = useMutation(api.birth.birth);
 	const [name, setName] = useState("");
-	const [secondsPerYear, setSecondsPerYear] = useState(120);
+	const [secondsPerYear, setSecondsPerYear] = useState(0);
+	const [model, setModel] = useState<AgentModelId>(DEFAULT_AGENT_MODEL);
 	const [submitting, setSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const dialogRef = useRef<HTMLDialogElement>(null);
@@ -32,6 +38,7 @@ export function BirthModal({
 			await birth({
 				name: name.trim(),
 				secondsPerYear,
+				model,
 			});
 			setName("");
 			onClose();
@@ -72,9 +79,9 @@ export function BirthModal({
 					<div className="flex items-center gap-3">
 						<input
 							type="range"
-							min={30}
+							min={0}
 							max={300}
-							step={10}
+							step={5}
 							value={secondsPerYear}
 							onChange={(e) => setSecondsPerYear(Number(e.target.value))}
 							className="flex-1 accent-stone-700"
@@ -83,6 +90,20 @@ export function BirthModal({
 							{secondsPerYear}s
 						</span>
 					</div>
+				</Field>
+
+				<Field label="Model">
+					<select
+						value={model}
+						onChange={(e) => setModel(e.target.value as AgentModelId)}
+						className="w-full px-3 py-2 border border-stone-300 bg-white font-serif text-base focus:border-stone-600 focus:outline-none"
+					>
+						{AGENT_MODELS.map((m) => (
+							<option key={m.id} value={m.id}>
+								{m.label}
+							</option>
+						))}
+					</select>
 				</Field>
 
 				<p className="font-serif italic text-xs text-stone-500 leading-relaxed border-l-2 border-stone-300 pl-3">

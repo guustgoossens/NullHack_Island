@@ -5,7 +5,7 @@ import {
 	internalAction,
 	internalMutation,
 } from "../_generated/server";
-import { getAnthropic, TICK_MODEL } from "../lib/anthropic";
+import { getAnthropic, tickModelFor } from "../lib/anthropic";
 import { anthropicCostUsd } from "../lib/cost";
 // describeAxesForPrompt is no longer needed here — only the assessment model
 // sees the axes. The agent never knows it's being scored.
@@ -41,10 +41,11 @@ export const runSelfGenesis = internalAction({
 		if (agent.genesisStatus === "ready") return;
 
 		const anthropic = getAnthropic();
+		const model = tickModelFor(agent);
 
 		try {
 			const resp = await anthropic.messages.create({
-				model: TICK_MODEL,
+				model,
 				max_tokens: 600,
 				system: SYSTEM_PROMPT,
 				messages: [{ role: "user", content: USER_PROMPT }],
@@ -65,7 +66,7 @@ export const runSelfGenesis = internalAction({
 			});
 
 			const cost = anthropicCostUsd(
-				TICK_MODEL,
+				model,
 				resp.usage.input_tokens,
 				resp.usage.output_tokens,
 			);
