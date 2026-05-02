@@ -938,3 +938,17 @@ export const insertEraLabel = internalMutation({
 		await ctx.db.insert("eraLabels", args);
 	},
 });
+
+export const insertEmotionReading = internalMutation({
+	args: {
+		agentId: v.id("agents"),
+		year: v.number(),
+		emotions: v.any(),
+		salientPull: v.string(),
+		dominantEmotion: v.string(),
+		creationPhaseId: v.optional(v.id("creationPhases")),
+	},
+	handler: async (ctx, args) => {
+		await ctx.db.insert("emotionalReadings", args);
+	},
+});

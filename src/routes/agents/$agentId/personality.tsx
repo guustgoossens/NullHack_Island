@@ -1,34 +1,28 @@
 import { createFileRoute, useParams } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { api } from "../../../../convex/_generated/api";
 import type { Doc, Id } from "../../../../convex/_generated/dataModel";
-import { pca } from "../../../lib/pca";
 
 export const Route = createFileRoute("/agents/$agentId/personality")({
 	component: PersonalityPage,
 });
+
+type EmotionDef = {
+	key: string;
+	label: string;
+	axis?: { dim: "x" | "y" | "z"; sign: -1 | 1 };
+	hex: string;
+};
 
 function PersonalityPage() {
 	const { agentId } = useParams({ strict: false }) as {
 		agentId: Id<"agents">;
 	};
 	const agent = useQuery(api.agents.get, { agentId });
-	const axes = useQuery(api.personality.axes, {});
-	const scores = useQuery(api.personality.list, { agentId });
-
-	const ready = !!agent && !!axes && !!scores;
-
-	const computed = useMemo(() => {
-		if (!ready || !axes || !scores) return null;
-		if (scores.length < 2) return null;
-		const matrix = scores.map((row) =>
-			axes.map((a) => Number((row.scores as Record<string, number>)[a.key] ?? 5)),
-		);
-		const result = pca(matrix);
-		return result;
-	}, [ready, axes, scores]);
+	const definitions = useQuery(api.emotions.definitions, {});
+	const readings = useQuery(api.emotions.list, { agentId });
 
 	if (!agent) return null;
 
@@ -36,44 +30,39 @@ function PersonalityPage() {
 		<main className="mx-auto max-w-6xl px-6 py-10 space-y-12">
 			<header>
 				<h1 className="font-serif text-4xl text-stone-900 leading-tight">
-					Personality drift
+					Vector room
 				</h1>
-				<p className="font-serif italic text-stone-600 mt-2 max-w-2xl">
-					Eight axes, scored each year by a small assessment model. The trajectory below
-					is the agent's path through PCA space (eigendecomposition of the centered
-					score matrix). Drift over time is the whole point.
+				<p className="font-serif italic text-stone-600 mt-2 max-w-2xl leading-relaxed">
+					An outside observer scores eight emotions after every phase. The room
+					below is the agent's emotional state in space — three of the emotions
+					form the walls (joy↔grief, optimism↔anger, ego↔fear); the other five
+					colour, size, and halo each point. Drag to rotate.
 				</p>
 			</header>
 
-			{!scores || scores.length === 0 ? (
+			{!readings || !definitions ? null : readings.length === 0 ? (
 				<EmptyState
-					title="No assessments yet"
+					title="No readings yet"
 					body={
 						agent.genesisStatus === "ready"
-							? "The first creation phase will produce a yearly score. Until then there's only the birth vector to plot."
-							: "Self-genesis hasn't completed — the birth vector is still being chosen."
+							? "The next phase will produce the first emotional reading."
+							: "Self-genesis hasn't completed — the agent has nothing to feel yet."
 					}
-				/>
-			) : !computed ? (
-				<EmptyState
-					title="Need at least two assessments to fit a projection"
-					body={`Currently have ${scores.length}. Run the agent through one creation phase and a second point will appear.`}
 				/>
 			) : (
 				<>
-					<TrajectoryChart
-						scores={scores}
-						projected={computed.projected}
-						explained={computed.explained}
+					<VectorRoom
+						readings={readings}
+						definitions={definitions as EmotionDef[]}
 					/>
-
-					<LoadingsTable
-						components={computed.components.slice(0, 3)}
-						explained={computed.explained.slice(0, 3)}
-						axes={axes ?? []}
+					<CurrentPanel
+						readings={readings}
+						definitions={definitions as EmotionDef[]}
 					/>
-
-					<EvolutionGrid scores={scores} axes={axes ?? []} />
+					<RecentTimeline
+						readings={readings}
+						definitions={definitions as EmotionDef[]}
+					/>
 				</>
 			)}
 		</main>
@@ -91,285 +80,592 @@ function EmptyState({ title, body }: { title: string; body: string }) {
 	);
 }
 
-function TrajectoryChart({
-	scores,
-	projected,
-	explained,
+// ---------- 3D math ----------
+
+type Reading = Doc<"emotionalReadings">;
+
+function readingPosition(r: Reading): [number, number, number] {
+	const e = (r.emotions ?? {}) as Record<string, number>;
+	const x = (e.anger ?? 0) - (e.optimism ?? 0); // -1..1
+	const y = (e.grief ?? 0) - (e.joy ?? 0);
+	const z = (e.fear ?? 0) - (e.ego ?? 0);
+	return [x, y, z];
+}
+
+function rotate(
+	[x, y, z]: [number, number, number],
+	yaw: number,
+	pitch: number,
+): [number, number, number] {
+	// Yaw around Y, then pitch around X.
+	const cy = Math.cos(yaw);
+	const sy = Math.sin(yaw);
+	const x1 = cy * x + sy * z;
+	const z1 = -sy * x + cy * z;
+	const cp = Math.cos(pitch);
+	const sp = Math.sin(pitch);
+	const y1 = cp * y - sp * z1;
+	const z2 = sp * y + cp * z1;
+	return [x1, y1, z2];
+}
+
+// ---------- Vector Room ----------
+
+function VectorRoom({
+	readings,
+	definitions,
 }: {
-	scores: Doc<"personalityScores">[];
-	projected: number[][];
-	explained: number[];
+	readings: Reading[];
+	definitions: EmotionDef[];
 }) {
-	// 2D scatter on PC1/PC2; PC3 modulates point radius.
-	const xs = projected.map((p) => p[0]);
-	const ys = projected.map((p) => p[1]);
-	const zs = projected.map((p) => p[2] ?? 0);
-	const xMin = Math.min(...xs);
-	const xMax = Math.max(...xs);
-	const yMin = Math.min(...ys);
-	const yMax = Math.max(...ys);
-	const zAbsMax = Math.max(0.1, ...zs.map(Math.abs));
+	const [yaw, setYaw] = useState(-0.55);
+	const [pitch, setPitch] = useState(-0.35);
+	const [hover, setHover] = useState<number | null>(null);
+	const dragging = useRef<{ x: number; y: number } | null>(null);
 
-	const W = 720;
-	const H = 480;
-	const padX = 40;
-	const padY = 40;
+	const W = 760;
+	const H = 540;
+	const cx = W / 2;
+	const cy = H / 2;
+	const scale = 170;
 
-	const dx = Math.max(0.001, xMax - xMin);
-	const dy = Math.max(0.001, yMax - yMin);
-	const px = (x: number) => padX + ((x - xMin) / dx) * (W - 2 * padX);
-	const py = (y: number) => H - padY - ((y - yMin) / dy) * (H - 2 * padY);
-	const pr = (z: number) => 5 + (Math.abs(z) / zAbsMax) * 8;
+	const colorByKey = useMemo(() => {
+		const m: Record<string, string> = {};
+		for (const d of definitions) m[d.key] = d.hex;
+		return m;
+	}, [definitions]);
 
-	const points = projected.map((p, i) => ({
-		x: px(p[0]),
-		y: py(p[1]),
-		r: pr(p[2] ?? 0),
-		year: scores[i].year,
-		origin: scores[i].origin,
-	}));
+	// 8 cube corners — drawn as the room.
+	const corners: [number, number, number][] = [
+		[-1, -1, -1],
+		[1, -1, -1],
+		[1, 1, -1],
+		[-1, 1, -1],
+		[-1, -1, 1],
+		[1, -1, 1],
+		[1, 1, 1],
+		[-1, 1, 1],
+	];
+	const edges: [number, number][] = [
+		[0, 1],
+		[1, 2],
+		[2, 3],
+		[3, 0],
+		[4, 5],
+		[5, 6],
+		[6, 7],
+		[7, 4],
+		[0, 4],
+		[1, 5],
+		[2, 6],
+		[3, 7],
+	];
 
-	const pathD = points
-		.map((pt, i) => `${i === 0 ? "M" : "L"} ${pt.x.toFixed(2)} ${pt.y.toFixed(2)}`)
+	function project([x, y, z]: [number, number, number]): {
+		sx: number;
+		sy: number;
+		depth: number;
+	} {
+		const [rx, ry, rz] = rotate([x, y, z], yaw, pitch);
+		return {
+			sx: cx + rx * scale,
+			sy: cy + ry * scale,
+			depth: rz, // for z-ordering — higher = further back
+		};
+	}
+
+	const projectedCorners = corners.map(project);
+
+	// Axis ends.
+	const axisEnds: {
+		label: string;
+		from: [number, number, number];
+		to: [number, number, number];
+		tone: string;
+	}[] = [
+		{ label: "anger", from: [0, 0, 0], to: [1.1, 0, 0], tone: "#c84a3a" },
+		{ label: "optimism", from: [0, 0, 0], to: [-1.1, 0, 0], tone: "#7ea96a" },
+		{ label: "grief", from: [0, 0, 0], to: [0, 1.1, 0], tone: "#5b6f8a" },
+		{ label: "joy", from: [0, 0, 0], to: [0, -1.1, 0], tone: "#f4c95d" },
+		{ label: "fear", from: [0, 0, 0], to: [0, 0, 1.1], tone: "#3d3d3d" },
+		{ label: "ego", from: [0, 0, 0], to: [0, 0, -1.1], tone: "#7a4ea3" },
+	];
+
+	// Build trail in chronological order.
+	const projected = readings.map((r) => {
+		const pos = readingPosition(r);
+		return { reading: r, pos, p: project(pos) };
+	});
+
+	// For draw-order, we want farther points behind nearer. Render readings
+	// sorted by depth desc; tooltip etc. use original index.
+	const drawOrder = projected
+		.map((p, i) => ({ i, depth: p.p.depth }))
+		.sort((a, b) => b.depth - a.depth)
+		.map((x) => x.i);
+
+	function pointSize(r: Reading): number {
+		const e = (r.emotions ?? {}) as Record<string, number>;
+		const intel = e.intelligence ?? 0;
+		return 4 + intel * 9;
+	}
+	function pointGlow(r: Reading): number {
+		const e = (r.emotions ?? {}) as Record<string, number>;
+		const t = e.tenderness ?? 0;
+		return t;
+	}
+
+	function onMouseDown(ev: React.MouseEvent) {
+		dragging.current = { x: ev.clientX, y: ev.clientY };
+	}
+	function onMouseMove(ev: React.MouseEvent) {
+		if (!dragging.current) return;
+		const dx = ev.clientX - dragging.current.x;
+		const dy = ev.clientY - dragging.current.y;
+		dragging.current = { x: ev.clientX, y: ev.clientY };
+		setYaw((y) => y + dx * 0.008);
+		setPitch((p) =>
+			Math.max(
+				-Math.PI / 2 + 0.05,
+				Math.min(Math.PI / 2 - 0.05, p + dy * 0.008),
+			),
+		);
+	}
+	function onMouseUp() {
+		dragging.current = null;
+	}
+
+	const lastIdx = readings.length - 1;
+	const trailD = projected
+		.map(
+			(p, i) =>
+				`${i === 0 ? "M" : "L"} ${p.p.sx.toFixed(2)} ${p.p.sy.toFixed(2)}`,
+		)
 		.join(" ");
 
 	return (
 		<section>
 			<div className="flex items-baseline justify-between mb-4">
-				<h2 className="font-serif text-2xl text-stone-900">Trajectory in PC space</h2>
+				<h2 className="font-serif text-2xl text-stone-900">
+					Where they are right now
+				</h2>
 				<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
-					PC1 · PC2 · radius=PC3
+					drag to rotate · {readings.length} readings
 				</span>
 			</div>
-			<div className="border border-stone-200 bg-white p-4">
+			<div className="border border-stone-200 bg-white">
 				<svg
 					viewBox={`0 0 ${W} ${H}`}
-					className="w-full h-auto block"
+					className="w-full h-auto block select-none cursor-grab active:cursor-grabbing"
 					role="img"
-					aria-label="PCA trajectory"
+					aria-label="3D emotional vector room"
+					onMouseDown={onMouseDown}
+					onMouseMove={onMouseMove}
+					onMouseUp={onMouseUp}
+					onMouseLeave={onMouseUp}
 				>
-					<title>PCA trajectory</title>
-					{/* origin axes */}
-					<line
-						x1={px(0)}
-						x2={px(0)}
-						y1={padY}
-						y2={H - padY}
-						stroke="#e7e5e4"
-						strokeDasharray="2 4"
-					/>
-					<line
-						x1={padX}
-						x2={W - padX}
-						y1={py(0)}
-						y2={py(0)}
-						stroke="#e7e5e4"
-						strokeDasharray="2 4"
-					/>
-					{/* trajectory line */}
-					<path
-						d={pathD}
-						fill="none"
-						stroke="#a8a29e"
-						strokeWidth={1.5}
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					/>
-					{/* points */}
-					{points.map((pt, i) => {
-						const isLast = i === points.length - 1;
-						const isBirth = pt.origin === "birth";
+					<title>3D emotional vector room</title>
+					<defs>
+						<radialGradient id="halo" cx="50%" cy="50%" r="50%">
+							<stop offset="0%" stopColor="white" stopOpacity="0.55" />
+							<stop offset="100%" stopColor="white" stopOpacity="0" />
+						</radialGradient>
+					</defs>
+
+					{/* Room — 12 cube edges */}
+					{edges.map(([a, b], i) => {
+						const A = projectedCorners[a];
+						const B = projectedCorners[b];
 						return (
-							// biome-ignore lint/suspicious/noArrayIndexKey: a year + index pair is the stable identity for one point in the trajectory
-							<g key={`${pt.year}-${i}`}>
-								<circle
-									cx={pt.x}
-									cy={pt.y}
-									r={pt.r}
-									fill={
-										isBirth
-											? "#fafaf9"
-											: isLast
-												? "#1c1917"
-												: "#57534e"
-									}
-									stroke="#1c1917"
-									strokeWidth={isBirth ? 1.2 : 0.6}
+							<line
+								// biome-ignore lint/suspicious/noArrayIndexKey: edges array is stable
+								key={`edge-${i}`}
+								x1={A.sx}
+								y1={A.sy}
+								x2={B.sx}
+								y2={B.sy}
+								stroke="#e7e5e4"
+								strokeWidth={1}
+							/>
+						);
+					})}
+
+					{/* Axes through origin */}
+					{axisEnds.map((a) => {
+						const from = project(a.from);
+						const to = project(a.to);
+						return (
+							<g key={a.label}>
+								<line
+									x1={from.sx}
+									y1={from.sy}
+									x2={to.sx}
+									y2={to.sy}
+									stroke={a.tone}
+									strokeOpacity={0.55}
+									strokeWidth={1}
+									strokeDasharray="3 3"
 								/>
 								<text
-									x={pt.x + pt.r + 3}
-									y={pt.y + 3}
+									x={to.sx}
+									y={to.sy}
+									dx={6}
+									dy={3}
+									fontSize={10}
 									className="font-mono"
-									fontSize={9}
-									fill="#57534e"
+									fill={a.tone}
+									fillOpacity={0.85}
 								>
-									y{pt.year}
+									{a.label}
 								</text>
+							</g>
+						);
+					})}
+
+					{/* Trail polyline */}
+					<path
+						d={trailD}
+						fill="none"
+						stroke="#a8a29e"
+						strokeWidth={1.2}
+						strokeLinecap="round"
+						strokeLinejoin="round"
+						strokeOpacity={0.55}
+					/>
+
+					{/* Points — drawn far → near for proper occlusion */}
+					{drawOrder.map((i) => {
+						const p = projected[i];
+						const r = pointSize(p.reading);
+						const glow = pointGlow(p.reading);
+						const color = colorByKey[p.reading.dominantEmotion] ?? "#1c1917";
+						const isLast = i === lastIdx;
+						const isBirth = p.reading.year === 0;
+						const opacity = 0.35 + (i / Math.max(1, lastIdx)) * 0.6;
+						return (
+							// biome-ignore lint/a11y/noStaticElementInteractions: SVG <g> is decorative; the parent <svg> carries role=img and the hover only drives a redundant inline tooltip
+							<g
+								key={p.reading._id}
+								onMouseEnter={() => setHover(i)}
+								onMouseLeave={() => setHover((h) => (h === i ? null : h))}
+								style={{ cursor: "pointer" }}
+							>
+								{glow > 0.05 && (
+									<circle
+										cx={p.p.sx}
+										cy={p.p.sy}
+										r={r + 8 + glow * 14}
+										fill="url(#halo)"
+										opacity={0.4 + glow * 0.6}
+									/>
+								)}
+								<circle
+									cx={p.p.sx}
+									cy={p.p.sy}
+									r={r}
+									fill={color}
+									fillOpacity={isLast ? 1 : opacity}
+									stroke={
+										isBirth ? "#1c1917" : isLast ? "#1c1917" : "transparent"
+									}
+									strokeWidth={isBirth || isLast ? 1.2 : 0}
+								/>
+								{isLast && (
+									<circle
+										cx={p.p.sx}
+										cy={p.p.sy}
+										r={r + 4}
+										fill="none"
+										stroke={color}
+										strokeOpacity={0.5}
+										strokeWidth={1}
+									>
+										<animate
+											attributeName="r"
+											values={`${r + 2};${r + 12};${r + 2}`}
+											dur="2.4s"
+											repeatCount="indefinite"
+										/>
+										<animate
+											attributeName="stroke-opacity"
+											values="0.55;0;0.55"
+											dur="2.4s"
+											repeatCount="indefinite"
+										/>
+									</circle>
+								)}
 							</g>
 						);
 					})}
 				</svg>
 			</div>
-			<p className="mt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
-				explained variance — PC1 {(explained[0] * 100).toFixed(1)}% · PC2 {(explained[1] * 100).toFixed(1)}% · PC3 {((explained[2] ?? 0) * 100).toFixed(1)}%
+
+			{/* Tooltip lives outside SVG so it can use real text wrapping */}
+			{hover !== null && readings[hover] ? (
+				<TooltipCard reading={readings[hover]} definitions={definitions} />
+			) : (
+				<p className="mt-3 font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
+					hover a point — they're chronological, last reading is the pulsing one
+				</p>
+			)}
+		</section>
+	);
+}
+
+function TooltipCard({
+	reading,
+	definitions,
+}: {
+	reading: Reading;
+	definitions: EmotionDef[];
+}) {
+	const e = (reading.emotions ?? {}) as Record<string, number>;
+	const labelByKey = useMemo(() => {
+		const m: Record<string, string> = {};
+		for (const d of definitions) m[d.key] = d.label;
+		return m;
+	}, [definitions]);
+	const top = [...definitions]
+		.map((d) => ({ key: d.key, label: d.label, v: e[d.key] ?? 0, hex: d.hex }))
+		.sort((a, b) => b.v - a.v)
+		.slice(0, 3);
+	return (
+		<div className="mt-3 border border-stone-200 bg-stone-50 px-4 py-3">
+			<div className="flex items-baseline justify-between gap-4">
+				<div className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
+					year {reading.year}
+				</div>
+				<div className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
+					dominant:{" "}
+					{labelByKey[reading.dominantEmotion] ?? reading.dominantEmotion}
+				</div>
+			</div>
+			<p className="mt-2 font-serif italic text-stone-800 leading-snug">
+				"{reading.salientPull}"
 			</p>
-		</section>
+			<div className="mt-2 flex gap-4">
+				{top.map((t) => (
+					<div key={t.key} className="flex items-center gap-1.5">
+						<span
+							className="inline-block w-2 h-2 rounded-full"
+							style={{ backgroundColor: t.hex }}
+						/>
+						<span className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-600">
+							{t.label} {(t.v * 100).toFixed(0)}
+						</span>
+					</div>
+				))}
+			</div>
+		</div>
 	);
 }
 
-function LoadingsTable({
-	components,
-	explained,
-	axes,
+// ---------- Current state radar ----------
+
+function CurrentPanel({
+	readings,
+	definitions,
 }: {
-	components: number[][];
-	explained: number[];
-	axes: { key: string; label: string }[];
+	readings: Reading[];
+	definitions: EmotionDef[];
 }) {
+	const latest = readings[readings.length - 1];
+	if (!latest) return null;
+	const e = (latest.emotions ?? {}) as Record<string, number>;
+
+	const W = 360;
+	const H = 360;
+	const cx = W / 2;
+	const cy = H / 2;
+	const r = 130;
+
+	const n = definitions.length;
+	const points = definitions.map((d, i) => {
+		const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+		const v = Math.max(0, Math.min(1, e[d.key] ?? 0));
+		const px = cx + Math.cos(angle) * r * v;
+		const py = cy + Math.sin(angle) * r * v;
+		const lx = cx + Math.cos(angle) * (r + 22);
+		const ly = cy + Math.sin(angle) * (r + 22);
+		return { def: d, value: v, px, py, lx, ly, angle };
+	});
+	const grid = [0.25, 0.5, 0.75, 1].map((g) => {
+		const ringPts = definitions.map((_, i) => {
+			const angle = (i / n) * Math.PI * 2 - Math.PI / 2;
+			return `${(cx + Math.cos(angle) * r * g).toFixed(2)},${(cy + Math.sin(angle) * r * g).toFixed(2)}`;
+		});
+		return ringPts.join(" ");
+	});
+
 	return (
 		<section>
-			<h2 className="font-serif text-2xl text-stone-900 mb-4">
-				What the components are made of
-			</h2>
-			<div className="overflow-x-auto border border-stone-200 bg-white">
-				<table className="w-full text-sm">
-					<thead className="border-b border-stone-200">
-						<tr>
-							<th className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500">
-								axis
-							</th>
-							{components.map((_, i) => (
-								<th
-									// biome-ignore lint/suspicious/noArrayIndexKey: column index is the identity here
-									key={`pc${i}`}
-									className="text-right px-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500"
-								>
-									PC{i + 1}
-									<span className="ml-1 text-stone-400 normal-case">
-										({(explained[i] * 100).toFixed(0)}%)
-									</span>
-								</th>
-							))}
-						</tr>
-					</thead>
-					<tbody>
-						{axes.map((a, axisIdx) => (
-							<tr key={a.key} className="border-b border-stone-100 last:border-0">
-								<td className="px-3 py-2 font-serif text-stone-700">{a.label}</td>
-								{components.map((comp, ci) => {
-									const v = comp[axisIdx] ?? 0;
-									const intensity = Math.min(1, Math.abs(v));
-									const bg =
-										v >= 0
-											? `rgba(15, 118, 110, ${intensity * 0.35})`
-											: `rgba(190, 18, 60, ${intensity * 0.35})`;
-									return (
-										<td
-											// biome-ignore lint/suspicious/noArrayIndexKey: column index is the identity
-											key={`${a.key}-pc${ci}`}
-											className="px-3 py-2 text-right font-mono text-xs tabular-nums"
-											style={{ backgroundColor: bg }}
-										>
-											{v.toFixed(2)}
-										</td>
-									);
-								})}
-							</tr>
+			<div className="flex items-baseline justify-between mb-4">
+				<h2 className="font-serif text-2xl text-stone-900">Current weather</h2>
+				<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
+					year {latest.year}
+				</span>
+			</div>
+			<div className="grid lg:grid-cols-[auto,1fr] gap-8 items-start">
+				<div className="border border-stone-200 bg-white p-2">
+					<svg
+						viewBox={`0 0 ${W} ${H}`}
+						className="w-full h-auto max-w-[360px] block"
+						role="img"
+						aria-label="emotion radar"
+					>
+						<title>emotion radar</title>
+						{grid.map((g, i) => (
+							<polygon
+								// biome-ignore lint/suspicious/noArrayIndexKey: ring index is stable
+								key={`g-${i}`}
+								points={g}
+								fill="none"
+								stroke="#e7e5e4"
+								strokeWidth={0.75}
+							/>
 						))}
-					</tbody>
-				</table>
+						{points.map((p) => (
+							<line
+								key={`r-${p.def.key}`}
+								x1={cx}
+								y1={cy}
+								x2={cx + Math.cos(p.angle) * r}
+								y2={cy + Math.sin(p.angle) * r}
+								stroke="#f5f5f4"
+								strokeWidth={0.75}
+							/>
+						))}
+						<polygon
+							points={points
+								.map((p) => `${p.px.toFixed(2)},${p.py.toFixed(2)}`)
+								.join(" ")}
+							fill="#1c1917"
+							fillOpacity={0.08}
+							stroke="#1c1917"
+							strokeWidth={1.2}
+						/>
+						{points.map((p) => (
+							<g key={`p-${p.def.key}`}>
+								<circle
+									cx={p.px}
+									cy={p.py}
+									r={3}
+									fill={p.def.hex}
+									stroke="#1c1917"
+									strokeWidth={0.5}
+								/>
+								<text
+									x={p.lx}
+									y={p.ly}
+									textAnchor={
+										Math.cos(p.angle) > 0.2
+											? "start"
+											: Math.cos(p.angle) < -0.2
+												? "end"
+												: "middle"
+									}
+									dominantBaseline="middle"
+									fontSize={10}
+									className="font-mono uppercase tracking-[0.14em]"
+									fill="#57534e"
+								>
+									{p.def.label}
+								</text>
+								<text
+									x={p.lx}
+									y={p.ly + 12}
+									textAnchor={
+										Math.cos(p.angle) > 0.2
+											? "start"
+											: Math.cos(p.angle) < -0.2
+												? "end"
+												: "middle"
+									}
+									dominantBaseline="middle"
+									fontSize={9}
+									className="font-mono tabular-nums"
+									fill="#a8a29e"
+								>
+									{(p.value * 100).toFixed(0)}
+								</text>
+							</g>
+						))}
+					</svg>
+				</div>
+				<div className="space-y-4">
+					<p className="font-serif italic text-stone-800 leading-relaxed text-lg">
+						"{latest.salientPull}"
+					</p>
+					<div className="border-l-2 border-stone-300 pl-3">
+						<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
+							dominant
+						</span>
+						<div
+							className="font-serif text-xl text-stone-900 mt-1"
+							style={{
+								color: definitions.find((d) => d.key === latest.dominantEmotion)
+									?.hex,
+							}}
+						>
+							{definitions.find((d) => d.key === latest.dominantEmotion)
+								?.label ?? latest.dominantEmotion}
+						</div>
+					</div>
+				</div>
 			</div>
 		</section>
 	);
 }
 
-function EvolutionGrid({
-	scores,
-	axes,
-}: {
-	scores: Doc<"personalityScores">[];
-	axes: { key: string; label: string; low: string; high: string }[];
-}) {
-	if (scores.length === 0) return null;
-	const W = 240;
-	const H = 80;
-	const pad = 6;
+// ---------- Recent timeline strip ----------
 
-	const yearMin = scores[0].year;
-	const yearMax = scores[scores.length - 1].year;
-	const dyear = Math.max(1, yearMax - yearMin);
+function RecentTimeline({
+	readings,
+	definitions,
+}: {
+	readings: Reading[];
+	definitions: EmotionDef[];
+}) {
+	const colorByKey = useMemo(() => {
+		const m: Record<string, string> = {};
+		for (const d of definitions) m[d.key] = d.hex;
+		return m;
+	}, [definitions]);
+
+	const tail = readings.slice(-30);
 
 	return (
 		<section>
-			<h2 className="font-serif text-2xl text-stone-900 mb-4">
-				Per-axis evolution
-			</h2>
-			<div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-				{axes.map((axis) => {
-					const series = scores.map((row) => ({
-						year: row.year,
-						value: Number(
-							(row.scores as Record<string, number>)[axis.key] ?? 5,
-						),
-					}));
-					const px = (year: number) =>
-						pad + ((year - yearMin) / dyear) * (W - 2 * pad);
-					const py = (v: number) => H - pad - ((v - 1) / 9) * (H - 2 * pad);
-					const path = series
-						.map(
-							(s, i) =>
-								`${i === 0 ? "M" : "L"} ${px(s.year).toFixed(2)} ${py(s.value).toFixed(2)}`,
-						)
-						.join(" ");
-
-					return (
-						<div
-							key={axis.key}
-							className="border border-stone-200 bg-white p-3"
-						>
-							<div className="flex items-baseline justify-between mb-1">
-								<span className="font-serif text-stone-900 text-sm">
-									{axis.label}
-								</span>
-								<span className="font-mono text-[9px] uppercase tracking-[0.18em] text-stone-400">
-									{series[series.length - 1].value.toFixed(1)}
-								</span>
-							</div>
-							<svg
-								viewBox={`0 0 ${W} ${H}`}
-								className="w-full h-20 block"
-								role="img"
-								aria-label={`${axis.label} over time`}
-							>
-								<title>{axis.label} over time</title>
-								<line
-									x1={pad}
-									x2={W - pad}
-									y1={py(5)}
-									y2={py(5)}
-									stroke="#e7e5e4"
-									strokeDasharray="2 3"
-								/>
-								<path d={path} fill="none" stroke="#1c1917" strokeWidth={1.4} />
-								{series.map((s, i) => (
-									<circle
-										// biome-ignore lint/suspicious/noArrayIndexKey: year is the stable identity here
-										key={`${axis.key}-${s.year}-${i}`}
-										cx={px(s.year)}
-										cy={py(s.value)}
-										r={2}
-										fill="#1c1917"
-									/>
-								))}
-							</svg>
-							<div className="mt-1 flex justify-between font-mono text-[9px] uppercase tracking-[0.18em] text-stone-400">
-								<span>{axis.low}</span>
-								<span>{axis.high}</span>
-							</div>
-						</div>
-					);
-				})}
+			<div className="flex items-baseline justify-between mb-4">
+				<h2 className="font-serif text-2xl text-stone-900">Recent pulls</h2>
+				<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
+					last {tail.length} years
+				</span>
 			</div>
+			<ol className="space-y-2">
+				{tail
+					.slice()
+					.reverse()
+					.map((r) => (
+						<li
+							key={r._id}
+							className="flex items-baseline gap-3 border-b border-stone-100 pb-2"
+						>
+							<span
+								className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+								style={{
+									backgroundColor: colorByKey[r.dominantEmotion] ?? "#a8a29e",
+								}}
+							/>
+							<span className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-500 tabular-nums w-16 shrink-0">
+								y{r.year}
+							</span>
+							<span className="font-serif italic text-stone-700 leading-snug">
+								{r.salientPull || "—"}
+							</span>
+						</li>
+					))}
+			</ol>
 		</section>
 	);
 }

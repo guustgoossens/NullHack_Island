@@ -342,4 +342,19 @@ export default defineSchema({
 		rationale: v.optional(v.string()),
 		creationPhaseId: v.optional(v.id("creationPhases")),
 	}).index("by_agent_and_year", ["agentId", "year"]),
+
+	// Yearly emotional reading by an outside observer. One row per year, fired
+	// after the creation phase when the full year's evidence is on the table.
+	// Emotion keys are validated in convex/lib/emotions.ts.
+	emotionalReadings: defineTable({
+		agentId: v.id("agents"),
+		year: v.number(),
+		// Map of emotion key -> intensity 0..1 (multi-label, not normalized).
+		emotions: v.any(),
+		// Free-text: what the agent is fixated on this year, in observer's voice.
+		salientPull: v.string(),
+		// The single emotion the observer thinks colors this year most.
+		dominantEmotion: v.string(),
+		creationPhaseId: v.optional(v.id("creationPhases")),
+	}).index("by_agent_and_year", ["agentId", "year"]),
 });
