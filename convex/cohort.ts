@@ -102,22 +102,24 @@ export const islandView = query({
 	},
 });
 
-// Latest emotional reading for each individual in the cohort.
-// Used by the /island emotion-overlay toggle. Commons is excluded — only
-// individuals get observer scoring.
-export const cohortLatestEmotions = query({
+// All emotional readings for every individual in the cohort, ordered ascending
+// by year. The /island overlay fetches this once when toggled on; client picks
+// the right row per scrubYear locally instead of re-querying on every drag.
+// Commons is excluded — only individuals get observer scoring.
+export const cohortAllEmotions = query({
 	args: { cohortId: v.id("cohorts") },
 	handler: async (ctx, { cohortId }) => {
 		const cohort = await ctx.db.get(cohortId);
 		if (!cohort) return null;
-		const out: Record<string, Doc<"emotionalReadings"> | null> = {};
+		const out: Record<string, Doc<"emotionalReadings">[]> = {};
 		for (const id of cohort.individualIds) {
 			const rows = await ctx.db
 				.query("emotionalReadings")
 				.withIndex("by_agent_and_year", (q) => q.eq("agentId", id))
-				.order("desc")
-				.take(1);
-			out[id] = rows[0] ?? null;
+				.take(200);
+			out[id] = rows.sort((a, b) =>
+				a.year !== b.year ? a.year - b.year : a._creationTime - b._creationTime,
+			);
 		}
 		return out;
 	},

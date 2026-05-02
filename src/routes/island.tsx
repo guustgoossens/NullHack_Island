@@ -97,14 +97,29 @@ function IslandView({
 		api.cohort.stateAtYear,
 		scrubYear !== null ? { cohortId, year: scrubYear } : "skip",
 	);
+	// Fetch emotion data once per cohort; pick per-year readings client-side so
+	// scrubbing doesn't re-fire queries.
 	const emotionDefs = useQuery(
 		api.emotions.definitions,
 		emotionOverlay ? {} : "skip",
 	);
-	const cohortEmotions = useQuery(
-		api.cohort.cohortLatestEmotions,
+	const allEmotions = useQuery(
+		api.cohort.cohortAllEmotions,
 		emotionOverlay ? { cohortId } : "skip",
 	);
+
+	// Latest-only flat map for the commons aurora ring (it always reads "now",
+	// regardless of scrub) — kept stable to avoid re-renders. Must be declared
+	// before any early return so hook order stays consistent across renders.
+	const cohortLatestEmotions = useMemo(() => {
+		if (!allEmotions) return null;
+		const out: Record<string, Doc<"emotionalReadings"> | null> = {};
+		for (const id of Object.keys(allEmotions)) {
+			const list = allEmotions[id];
+			out[id] = list && list.length > 0 ? list[list.length - 1] : null;
+		}
+		return out;
+	}, [allEmotions]);
 
 	if (data === undefined) {
 		return (
@@ -159,27 +174,40 @@ function IslandView({
 		return scrubYear ?? 0;
 	};
 
-	const renderCell = (i: number) => (
-		<Cell
-			key={i}
-			agent={individuals[i]}
-			imageUrl={imgFor(individuals[i]?._id)}
-			era={eraFor(individuals[i]?._id)}
-			displayYear={
-				individuals[i]
-					? yearLabelFor(individuals[i] as Doc<"agents">)
-					: 0
-			}
-			hideRuntimeBadges={!liveMode}
-			emotionOverlay={emotionOverlay}
-			emotionReading={
-				individuals[i] && cohortEmotions
-					? cohortEmotions[individuals[i]!._id] ?? null
-					: null
-			}
-			emotionDefs={emotionDefs ?? null}
-		/>
-	);
+	// Pick the most recent emotional reading at-or-before the given year from
+	// the cached per-cohort emotion list. Pure client-side; no extra fetches.
+	const emotionFor = (
+		agentId: Id<"agents"> | undefined,
+		atYear: number,
+	): Doc<"emotionalReadings"> | null => {
+		if (!agentId || !allEmotions) return null;
+		const list = allEmotions[agentId];
+		if (!list || list.length === 0) return null;
+		// list is sorted ascending by year; scan from the end for the first
+		// row whose year <= atYear.
+		for (let j = list.length - 1; j >= 0; j--) {
+			if (list[j].year <= atYear) return list[j];
+		}
+		return null;
+	};
+
+	const renderCell = (i: number) => {
+		const a = individuals[i];
+		const yearForCell = a ? yearLabelFor(a as Doc<"agents">) : 0;
+		return (
+			<Cell
+				key={i}
+				agent={a}
+				imageUrl={imgFor(a?._id)}
+				era={eraFor(a?._id)}
+				displayYear={yearForCell}
+				hideRuntimeBadges={!liveMode}
+				emotionOverlay={emotionOverlay}
+				emotionReading={emotionFor(a?._id, yearForCell)}
+				emotionDefs={emotionDefs ?? null}
+			/>
+		);
+	};
 
 	const agentColors: Record<string, string> = {};
 	{
@@ -274,7 +302,7 @@ function IslandView({
 						displayYear={commons ? yearLabelFor(commons) : 0}
 						emotionOverlay={emotionOverlay}
 						individuals={individuals}
-						cohortEmotions={cohortEmotions ?? null}
+						cohortEmotions={cohortLatestEmotions}
 						emotionDefs={emotionDefs ?? null}
 						agentColors={agentColors}
 					/>

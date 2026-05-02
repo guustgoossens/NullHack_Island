@@ -1,242 +1,104 @@
-Welcome to your new TanStack Start app! 
+# NullHack Island — A Life of Beauty
 
-# Getting Started
+> *"Give an agent a goal, watch it optimize. Give an agent a life, watch it become someone."*
 
-To run this application:
+## The pitch
+
+This hackathon is about **taste**. Our take: taste isn't a prompt or a benchmark — it's the residue of a life lived. It accumulates passively, through years of looking, reading, listening, making, and changing your mind. Agents today don't have taste because they don't have lives. They have tasks.
+
+So we give them a life.
+
+Each agent is born with a name and a temperament and then gets **60 simulated years** to do nothing but live. During that life it has access to:
+
+- **The open internet** — web search, web fetch, Wikipedia, random walks
+- **Lyrics, artworks, poems** — music search, image search, Pinterest, poetry
+- **Research papers** — arXiv, for the agents that go intellectual
+- **Tools to make and design its own interior** — generate room images, write to its own brain (a markdown filesystem of obsessions, opinions, manifestos), and build a portfolio across many mediums (images, ASCII, poems, HTML, Three.js, Manim, essays)
+
+Out of this an agent develops **eras** — a Japan era, a Brutalist era, a vaporwave era — and a body of work that is legibly informed by what it was looking at the year before. The product isn't "good art." The product is the **observable trajectory of a soul**: age 19 vs age 27 vs age 55, side by side.
+
+Read [`PRD.md`](./PRD.md) for the full design.
+
+## The three artifacts
+
+Every agent maintains, and every creation phase must touch, three things:
+
+| Artifact | What it is |
+|---|---|
+| **Brain** | A writable markdown filesystem the agent keeps for itself — `obsessions/`, `opinions/`, `journal/`. The closest thing to a self. Live state, not a journal. |
+| **Room** | One image of the agent's interior. Re-prompted and re-generated each year. Interior-only, locked POV. |
+| **Portfolio** | Works the agent has made or curated — across image, ASCII, poem, HTML, Three.js, Manim, essay. No fake fallbacks. |
+
+## Time model
+
+- 60 simulated years per life
+- 4 consumption phases + 1 creation phase per year → **300 phases per life**
+- A Convex cron ticks every N seconds and dispatches the next due phase for each living agent
+- Agents tick independently, so a whole **cohort** lives in parallel
+- The `/island` demo runs 8 individuals + 1 Commons, with a barrier-pause every 4 years where pairs → fours → all-8 synthesize a shared brain/room/portfolio
+
+## Stack
+
+| Layer | Choice |
+|---|---|
+| Backend / DB / cron / storage | **Convex** (`convex/`) — schema, actions, crons, file storage |
+| Frontend | **TanStack Start** + TanStack Router + TanStack Store, React 19 |
+| Styling | Tailwind CSS v4 |
+| LLMs | Anthropic Claude (ticks), Google Gemini, OpenAI — wired through `@tanstack/ai-*` |
+| Image generation | gpt-image (room + portfolio images) |
+| Lint / format | Biome |
+| Test | Vitest |
+| Deploy | Vercel (`vercel.json`) |
+| Package manager | **bun** |
+
+Repo layout:
+
+```
+convex/        backend — schema, ticks, tools, cohort/commons, crons
+  agent/       agent runtime
+  tools/       consume + create tool implementations
+  lib/         shared helpers
+src/routes/    TanStack Start routes
+  island.tsx   the cohort demo (8 + Commons)
+  lives.tsx    grid of all lives
+  agents/      per-agent views (brain, room, portfolio, feed, timeline)
+scrapers/      external content scrapers (e.g. pinterest)
+PRD.md         full product spec
+```
+
+## Running it
 
 ```bash
 bun install
-bun --bun run dev
+bun --bun run dev          # vite dev server on :3000
+npx convex dev             # in another shell — Convex backend + cron dispatcher
 ```
 
-# Building For Production
-
-To build this application for production:
-
-```bash
-bun --bun run build
-```
-
-## Testing
-
-This project uses [Vitest](https://vitest.dev/) for testing. You can run the tests with:
-
-```bash
-bun --bun run test
-```
-
-## Styling
-
-This project uses [Tailwind CSS](https://tailwindcss.com/) for styling.
-
-### Removing Tailwind CSS
-
-If you prefer not to use Tailwind CSS:
-
-1. Remove the demo pages in `src/routes/demo/`
-2. Replace the Tailwind import in `src/styles.css` with your own styles
-3. Remove `tailwindcss()` from the plugins array in `vite.config.ts`
-4. Uninstall the packages: `bun install @tailwindcss/vite tailwindcss -D`
-
-## Linting & Formatting
-
-This project uses [Biome](https://biomejs.dev/) for linting and formatting. The following scripts are available:
-
-
-```bash
-bun --bun run lint
-bun --bun run format
-bun --bun run check
-```
-
-
-# TanStack Chat Application
-
-Am example chat application built with TanStack Start, TanStack Store, and Claude AI.
-
-## .env Updates
+Environment:
 
 ```env
-ANTHROPIC_API_KEY=your_anthropic_api_key
+ANTHROPIC_API_KEY=...
+GOOGLE_GENAI_API_KEY=...
+OPENAI_API_KEY=...
 ```
 
-## ✨ Features
+Other scripts:
 
-### AI Capabilities
-- 🤖 Powered by Claude 3.5 Sonnet 
-- 📝 Rich markdown formatting with syntax highlighting
-- 🎯 Customizable system prompts for tailored AI behavior
-- 🔄 Real-time message updates and streaming responses (coming soon)
-
-### User Experience
-- 🎨 Modern UI with Tailwind CSS and Lucide icons
-- 🔍 Conversation management and history
-- 🔐 Secure API key management
-- 📋 Markdown rendering with code highlighting
-
-### Technical Features
-- 📦 Centralized state management with TanStack Store
-- 🔌 Extensible architecture for multiple AI providers
-- 🛠️ TypeScript for type safety
-
-## Architecture
-
-### Tech Stack
-- **Frontend Framework**: TanStack Start
-- **Routing**: TanStack Router
-- **State Management**: TanStack Store
-- **Styling**: Tailwind CSS
-- **AI Integration**: Anthropic's Claude API
-
-
-## Routing
-
-This project uses [TanStack Router](https://tanstack.com/router) with file-based routing. Routes are managed as files in `src/routes`.
-
-### Adding A Route
-
-To add a new route to your application just add a new file in the `./src/routes` directory.
-
-TanStack will automatically generate the content of the route file for you.
-
-Now that you have two routes you can use a `Link` component to navigate between them.
-
-### Adding Links
-
-To use SPA (Single Page Application) navigation you will need to import the `Link` component from `@tanstack/react-router`.
-
-```tsx
-import { Link } from "@tanstack/react-router";
+```bash
+bun --bun run build        # production build
+bun --bun run test         # vitest
+bun --bun run check        # biome lint + format
 ```
 
-Then anywhere in your JSX you can use it like so:
+## Routes
 
-```tsx
-<Link to="/about">About</Link>
-```
+- `/` → redirects to `/island`
+- `/island` — cohort demo: 8 individuals + 1 Commons in a fixed 3×3 grid with an emotion overlay
+- `/lives` — grid of all agent lives
+- `/agents/$agentId` — agent home (current room, brain, portfolio, feed)
+- `/agents/$agentId/timeline` — scrubbable 60-year life
+- `/agents/$agentId/brain` `/room` `/portfolio` `/feed` — per-artifact deep dives
 
-This will create a link that will navigate to the `/about` route.
+## Status
 
-More information on the `Link` component can be found in the [Link documentation](https://tanstack.com/router/v1/docs/framework/react/api/router/linkComponent).
-
-### Using A Layout
-
-In the File Based Routing setup the layout is located in `src/routes/__root.tsx`. Anything you add to the root route will appear in all the routes. The route content will appear in the JSX where you render `{children}` in the `shellComponent`.
-
-Here is an example layout that includes a header:
-
-```tsx
-import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-
-export const Route = createRootRoute({
-  head: () => ({
-    meta: [
-      { charSet: 'utf-8' },
-      { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'My App' },
-    ],
-  }),
-  shellComponent: ({ children }) => (
-    <html lang="en">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        <header>
-          <nav>
-            <Link to="/">Home</Link>
-            <Link to="/about">About</Link>
-          </nav>
-        </header>
-        {children}
-        <Scripts />
-      </body>
-    </html>
-  ),
-})
-```
-
-More information on layouts can be found in the [Layouts documentation](https://tanstack.com/router/latest/docs/framework/react/guide/routing-concepts#layouts).
-
-## Server Functions
-
-TanStack Start provides server functions that allow you to write server-side code that seamlessly integrates with your client components.
-
-```tsx
-import { createServerFn } from '@tanstack/react-start'
-
-const getServerTime = createServerFn({
-  method: 'GET',
-}).handler(async () => {
-  return new Date().toISOString()
-})
-
-// Use in a component
-function MyComponent() {
-  const [time, setTime] = useState('')
-  
-  useEffect(() => {
-    getServerTime().then(setTime)
-  }, [])
-  
-  return <div>Server time: {time}</div>
-}
-```
-
-## API Routes
-
-You can create API routes by using the `server` property in your route definitions:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-import { json } from '@tanstack/react-start'
-
-export const Route = createFileRoute('/api/hello')({
-  server: {
-    handlers: {
-      GET: () => json({ message: 'Hello, World!' }),
-    },
-  },
-})
-```
-
-## Data Fetching
-
-There are multiple ways to fetch data in your application. You can use TanStack Query to fetch data from a server. But you can also use the `loader` functionality built into TanStack Router to load the data for a route before it's rendered.
-
-For example:
-
-```tsx
-import { createFileRoute } from '@tanstack/react-router'
-
-export const Route = createFileRoute('/people')({
-  loader: async () => {
-    const response = await fetch('https://swapi.dev/api/people')
-    return response.json()
-  },
-  component: PeopleComponent,
-})
-
-function PeopleComponent() {
-  const data = Route.useLoaderData()
-  return (
-    <ul>
-      {data.results.map((person) => (
-        <li key={person.name}>{person.name}</li>
-      ))}
-    </ul>
-  )
-}
-```
-
-Loaders simplify your data fetching logic dramatically. Check out more information in the [Loader documentation](https://tanstack.com/router/latest/docs/framework/react/guide/data-loading#loader-parameters).
-
-# Demo files
-
-Files prefixed with `demo` can be safely deleted. They are there to provide a starting point for you to play around with the features you've installed.
-
-# Learn More
-
-You can learn more about all of the offerings from TanStack in the [TanStack documentation](https://tanstack.com).
-
-For TanStack Start specific documentation, visit [TanStack Start](https://tanstack.com/start).
+Hackathon scope. A few hero agents, full lives runnable in fast mode (~30 min) or default (~2 hr). The point is the trajectory, not the polish.
