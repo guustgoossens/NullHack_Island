@@ -134,22 +134,39 @@ export async function wikipediaRandom(): Promise<ExternalResult> {
 }
 
 export async function poetryFetch(query: string): Promise<ExternalResult> {
-	// PoetryDB — keyless. Try author OR title match. https://poetrydb.org/
-	const r = await fetch(
-		`https://poetrydb.org/title,author/${encodeURIComponent(query)}`,
-		{ headers: { Accept: "application/json" } },
-	);
-	if (!r.ok) {
-		// PoetryDB returns 404 for no match; treat as empty.
+	// PoetryDB — keyless. The /title,author/{q} endpoint requires the query to
+	// match BOTH fields, which silently returns nothing for plain author or
+	// title lookups. Try author, then title, then the combined endpoint.
+	const q = encodeURIComponent(query);
+	const endpoints = [
+		`https://poetrydb.org/author/${q}`,
+		`https://poetrydb.org/title/${q}`,
+		`https://poetrydb.org/title,author/${q}`,
+	];
+	let poems: Array<{ title: string; author: string; lines: string[] }> = [];
+	for (const url of endpoints) {
+		let r: Response;
+		try {
+			r = await timedFetch(url, { headers: { Accept: "application/json" } });
+		} catch {
+			continue;
+		}
+		if (!r.ok) continue;
+		let j: unknown;
+		try {
+			j = await r.json();
+		} catch {
+			continue;
+		}
+		if (Array.isArray(j) && j.length > 0) {
+			poems = j as typeof poems;
+			break;
+		}
+	}
+	if (poems.length === 0) {
 		return { summary: `No poems found for "${query}".`, payload: { poems: [] } };
 	}
-	const j = (await r.json()) as
-		| { status: number; reason: string }
-		| Array<{ title: string; author: string; lines: string[] }>;
-	if (!Array.isArray(j)) {
-		return { summary: `No poems found for "${query}".`, payload: { poems: [] } };
-	}
-	const top = j.slice(0, 3);
+	const top = poems.slice(0, 3);
 	const summary = top
 		.map(
 			(p) =>
@@ -163,13 +180,24 @@ export async function poetryFetch(query: string): Promise<ExternalResult> {
 
 export async function arxivFetch(query: string): Promise<ExternalResult> {
 	// arXiv API — keyless XML. We extract <entry><title> + <summary>.
-	const r = await fetch(
-		`http://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(
+	// arXiv 503s under load are routine; surface as transient (matching the
+	// other network tools) so the agent doesn't read it as a hard failure.
+	let r: Response;
+	try {
+		r = await timedFetch(
+			`http://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(
+				query,
+			)}&start=0&max_results=5`,
+			{ headers: { "User-Agent": UA } },
+		);
+	} catch (e) {
+		return transient(
+			"arxiv_search",
 			query,
-		)}&start=0&max_results=5`,
-		{ headers: { "User-Agent": UA } },
-	);
-	if (!r.ok) throw new Error(`arxiv ${r.status}`);
+			`network error: ${(e as Error).message}`,
+		);
+	}
+	if (!r.ok) return transient("arxiv_search", query, `HTTP ${r.status}`);
 	const xml = await r.text();
 	const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)].map(
 		(m) => m[1],
