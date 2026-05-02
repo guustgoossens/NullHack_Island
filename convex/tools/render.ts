@@ -23,18 +23,11 @@ ${interior.trim()}
 Return a single photograph of the same room from the same viewpoint, redecorated.`;
 }
 
-async function loadPovReference(
+async function loadStorageBytes(
 	ctx: ActionCtx,
-	agentId: Id<"agents">,
+	storageId: string,
 ): Promise<{ bytes: ArrayBuffer; mimeType: string } | null> {
-	// The year-0 "starting" room is the canonical POV anchor. We always
-	// reference *that* (not the previous year's room) to prevent drift across
-	// 60 years of compounding redecorations.
-	const ref = await ctx.runQuery(internal.tools.persist.getStartingRoom, {
-		agentId,
-	});
-	if (!ref?.imageStorageId) return null;
-	const blob = await ctx.storage.get(ref.imageStorageId);
+	const blob = await ctx.storage.get(storageId as Id<"_storage">);
 	if (!blob) return null;
 	const bytes = await blob.arrayBuffer();
 	return { bytes, mimeType: blob.type || "image/png" };
@@ -50,13 +43,19 @@ export const renderRoomImage = internalAction({
 		if (!room) return;
 		if (room.imageStatus !== "pending") return;
 		try {
-			// Starting room (year-0 birth render) has no reference yet — that
-			// image *becomes* the reference. Subsequent rooms are rendered as
-			// redecorations of it, with the agent's prompt scoped to interior.
+			// Starting room (year-0) has no reference — that image becomes the POV
+			// anchor. Subsequent rooms reference the previous year's image directly
+			// so each redecoration builds on the last visible state.
 			const isStartingRoom = room.origin === "starting";
-			const reference = isStartingRoom
-				? null
-				: await loadPovReference(ctx, room.agentId);
+			let reference: { bytes: ArrayBuffer; mimeType: string } | null = null;
+			if (!isStartingRoom && room.parentVersionId) {
+				const parent = await ctx.runQuery(internal.tools.persist.getRoomVersion, {
+					id: room.parentVersionId,
+				});
+				if (parent?.imageStorageId) {
+					reference = await loadStorageBytes(ctx, parent.imageStorageId);
+				}
+			}
 
 			const prompt =
 				reference !== null
