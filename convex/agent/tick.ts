@@ -260,6 +260,12 @@ export const tickCreation = internalAction({
 			internal.agent.assessment.runYearlyAssessment,
 			{ agentId, year: agent.currentYear, creationPhaseId },
 		);
+		// One yearly emotion reading by the outside observer.
+		await ctx.scheduler.runAfter(0, internal.agent.observer.runEmotionPass, {
+			agentId,
+			year: agent.currentYear,
+			creationPhaseId,
+		});
 
 		await scheduleNext(ctx, agentId);
 	},
