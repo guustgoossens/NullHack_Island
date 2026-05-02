@@ -306,7 +306,7 @@ async function scheduleNext(ctx: ActionCtx, agentId: Id<"agents">) {
 		agentId,
 	});
 	if (!agent) return;
-	if (agent.currentYear >= 60) return;
+	if (agent.currentYear >= 28) return;
 
 	// Cohort barrier: if an individual cohort agent just finished a year-N
 	// creation phase where N is a multiple of the cohort's gatheringEveryNYears,

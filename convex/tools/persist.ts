@@ -853,7 +853,7 @@ export const advanceAgentClock = internalMutation({
 			nextPhase = 0;
 			nextYear += 1;
 		}
-		const status: Doc<"agents">["status"] = nextYear >= 60 ? "dead" : agent.status;
+		const status: Doc<"agents">["status"] = nextYear >= 28 ? "dead" : agent.status;
 		await ctx.db.patch(agentId, {
 			currentYear: nextYear,
 			currentPhaseInYear: nextPhase,

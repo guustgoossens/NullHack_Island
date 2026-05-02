@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../../convex/_generated/api";
 import type { Doc, Id } from "../../convex/_generated/dataModel";
@@ -93,6 +93,7 @@ function IslandView({
 	const setSpeed = useMutation(api.cohort.setCohortSpeed);
 	const [scrubYear, setScrubYear] = useState<number | null>(null);
 	const [emotionOverlay, setEmotionOverlay] = useState(false);
+	const [conversationsOpen, setConversationsOpen] = useState(false);
 	const scrub = useQuery(
 		api.cohort.stateAtYear,
 		scrubYear !== null ? { cohortId, year: scrubYear } : "skip",
@@ -121,6 +122,36 @@ function IslandView({
 		return out;
 	}, [allEmotions]);
 
+	const individualsForEffect = data?.agents
+		? data.cohort.individualIds
+				.map((id) => data.agents.find((a) => a._id === id))
+				.filter((a): a is Doc<"agents"> => Boolean(a))
+		: [];
+	const maxYearForEffect = individualsForEffect.length
+		? Math.max(...individualsForEffect.map((a) => a.currentYear), 0)
+		: 0;
+	const speedForEffect = individualsForEffect[0]?.secondsPerYear ?? 15;
+
+	// Roll the scrub cursor forward at `speed` seconds/year so scrubbing back
+	// behaves like a paused playback that auto-resumes. When it catches up to
+	// the live edge, drop back into live mode. Declared before any early return
+	// so hook order stays stable across renders.
+	useEffect(() => {
+		if (scrubYear === null) return;
+		if (scrubYear >= maxYearForEffect) {
+			setScrubYear(null);
+			return;
+		}
+		const id = window.setTimeout(() => {
+			setScrubYear((y) => {
+				if (y === null) return null;
+				const next = y + 1;
+				return next >= maxYearForEffect ? null : next;
+			});
+		}, Math.max(1, speedForEffect) * 1000);
+		return () => window.clearTimeout(id);
+	}, [scrubYear, maxYearForEffect, speedForEffect]);
+
 	if (data === undefined) {
 		return (
 			<main className="mx-auto max-w-7xl px-6 py-12">
@@ -147,9 +178,9 @@ function IslandView({
 	const commons = agents.find((a) => a._id === cohort.commonsId) ?? null;
 
 	const minYear = Math.min(...individuals.map((a) => a.currentYear), 0);
-	const maxYear = Math.max(...individuals.map((a) => a.currentYear), 0);
+	const maxYear = maxYearForEffect;
 	const liveMode = scrubYear === null;
-	const speed = individuals[0]?.secondsPerYear ?? 15;
+	const speed = speedForEffect;
 
 	const activeGathering = liveMode
 		? gatherings.find(
@@ -305,6 +336,7 @@ function IslandView({
 						cohortEmotions={cohortLatestEmotions}
 						emotionDefs={emotionDefs ?? null}
 						agentColors={agentColors}
+						onOpenConversations={() => setConversationsOpen(true)}
 					/>
 					{[4, 5, 6, 7].map(renderCell)}
 				</div>
@@ -314,6 +346,15 @@ function IslandView({
 				<GatheringFloatingPanel
 					gatheringId={activeGathering._id}
 					agents={agents}
+				/>
+			)}
+
+			{conversationsOpen && (
+				<ConversationsModal
+					commonsName={commons?.name ?? cohort.name}
+					gatherings={gatherings}
+					agents={agents}
+					onClose={() => setConversationsOpen(false)}
 				/>
 			)}
 
@@ -427,6 +468,7 @@ function CommonsCell({
 	cohortEmotions = null,
 	emotionDefs = null,
 	agentColors = {},
+	onOpenConversations,
 }: {
 	agent: Doc<"agents"> | null;
 	imageUrl: string | null;
@@ -438,15 +480,16 @@ function CommonsCell({
 	cohortEmotions?: Record<string, Doc<"emotionalReadings"> | null> | null;
 	emotionDefs?: EmotionDef[] | null;
 	agentColors?: Record<string, string>;
+	onOpenConversations?: () => void;
 }) {
 	if (!agent) {
 		return <div className="bg-stone-100 border border-stone-200" />;
 	}
 	return (
-		<Link
-			to="/agents/$agentId"
-			params={{ agentId: agent._id }}
-			className={`relative bg-stone-100 border-2 ${activeGathering ? "border-amber-500" : "border-stone-900"} overflow-hidden block`}
+		<button
+			type="button"
+			onClick={onOpenConversations}
+			className={`relative bg-stone-100 border-2 ${activeGathering ? "border-amber-500" : "border-stone-900"} overflow-hidden block w-full h-full text-left hover:border-stone-700 transition-colors cursor-pointer`}
 		>
 			{emotionOverlay ? (
 				<EightVectorOverview
@@ -483,7 +526,7 @@ function CommonsCell({
 						: `synthesizing · y${activeGathering.year}`}
 				</div>
 			)}
-		</Link>
+		</button>
 	);
 }
 
@@ -552,6 +595,184 @@ function GatheringFloatingPanel({
 	);
 }
 
+function ConversationsModal({
+	commonsName,
+	gatherings,
+	agents,
+	onClose,
+}: {
+	commonsName: string;
+	gatherings: Doc<"gatherings">[];
+	agents: Doc<"agents">[];
+	onClose: () => void;
+}) {
+	const sorted = useMemo(
+		() => [...gatherings].sort((a, b) => a.year - b.year),
+		[gatherings],
+	);
+	const [selectedId, setSelectedId] = useState<Id<"gatherings"> | null>(
+		sorted[sorted.length - 1]?._id ?? null,
+	);
+
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [onClose]);
+
+	const selected = sorted.find((g) => g._id === selectedId) ?? null;
+
+	return (
+		<div
+			className="fixed inset-0 z-40 bg-stone-900/70 backdrop-blur-sm flex items-center justify-center p-4"
+			onClick={onClose}
+		>
+			<div
+				className="bg-stone-50 border border-stone-300 shadow-xl w-full max-w-5xl h-[80vh] flex flex-col"
+				onClick={(e) => e.stopPropagation()}
+			>
+				<header className="px-5 py-3 border-b border-stone-200 flex items-baseline justify-between gap-3 shrink-0">
+					<div className="flex items-baseline gap-3 min-w-0">
+						<h2 className="font-serif text-xl text-stone-900 italic truncate">
+							{commonsName}
+						</h2>
+						<span className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500">
+							gatherings · {sorted.length}
+						</span>
+					</div>
+					<button
+						type="button"
+						onClick={onClose}
+						className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500 hover:text-stone-900"
+					>
+						close ✕
+					</button>
+				</header>
+
+				{sorted.length === 0 ? (
+					<div className="flex-1 flex items-center justify-center font-serif italic text-stone-500">
+						No gatherings yet.
+					</div>
+				) : (
+					<div className="flex-1 min-h-0 grid grid-cols-[200px_1fr]">
+						<aside className="border-r border-stone-200 overflow-y-auto bg-stone-100/50">
+							{sorted.map((g) => (
+								<button
+									key={g._id}
+									type="button"
+									onClick={() => setSelectedId(g._id)}
+									className={`w-full text-left px-4 py-3 border-b border-stone-200 font-mono text-[11px] tracking-[0.1em] uppercase ${
+										selectedId === g._id
+											? "bg-stone-900 text-stone-50"
+											: "text-stone-700 hover:bg-stone-200/70"
+									}`}
+								>
+									<div className="tabular-nums">y{g.year}</div>
+									<div
+										className={`text-[9px] mt-0.5 ${
+											selectedId === g._id
+												? "text-stone-300"
+												: "text-stone-500"
+										}`}
+									>
+										{g.status}
+									</div>
+								</button>
+							))}
+						</aside>
+						<section className="overflow-y-auto">
+							{selected && (
+								<GatheringTranscriptView
+									gatheringId={selected._id}
+									agents={agents}
+								/>
+							)}
+						</section>
+					</div>
+				)}
+			</div>
+		</div>
+	);
+}
+
+function GatheringTranscriptView({
+	gatheringId,
+	agents,
+}: {
+	gatheringId: Id<"gatherings">;
+	agents: Doc<"agents">[];
+}) {
+	const detail = useQuery(api.cohort.gatheringDetail, { gatheringId });
+	const nameOf = useMemo(() => {
+		const m = new Map(agents.map((a) => [a._id, a.name] as const));
+		return (id: Id<"agents">) => m.get(id) ?? "?";
+	}, [agents]);
+
+	if (!detail) {
+		return (
+			<div className="p-6 font-mono text-[10px] uppercase tracking-[0.2em] text-stone-400">
+				loading…
+			</div>
+		);
+	}
+
+	const sorted = [...detail.breakouts].sort((a, b) => a.round - b.round);
+	const roundLabel = (round: number) =>
+		round === 1 ? "pairs" : round === 2 ? "fours" : "all eight";
+
+	return (
+		<div className="p-6 space-y-6">
+			<div className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-500 flex items-center gap-3">
+				<span>y{detail.gathering.year}</span>
+				<span>·</span>
+				<span>{detail.gathering.status}</span>
+				{detail.gathering.costUsd !== undefined && (
+					<>
+						<span>·</span>
+						<span>${detail.gathering.costUsd.toFixed(3)}</span>
+					</>
+				)}
+			</div>
+			{sorted.length === 0 && (
+				<div className="font-serif italic text-stone-500">
+					(no breakouts yet)
+				</div>
+			)}
+			{sorted.map((b) => (
+				<div key={b._id} className="space-y-2">
+					<div className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-700 border-b border-stone-200 pb-1 flex items-baseline justify-between">
+						<span>
+							round {b.round} · {roundLabel(b.round)}
+						</span>
+						<span className="text-stone-500">
+							{b.participantIds.map(nameOf).join(" · ")}
+						</span>
+					</div>
+					<div className="space-y-1.5 pl-1">
+						{b.transcript.length === 0 && (
+							<div className="font-serif italic text-stone-400 text-sm">
+								(silent…)
+							</div>
+						)}
+						{b.transcript.map((u, i) => (
+							<div key={i} className="text-sm leading-relaxed">
+								<span className="font-mono text-[11px] text-stone-700">
+									{nameOf(u.agentId)}:
+								</span>{" "}
+								<span className="font-serif text-stone-900">
+									{u.text}
+								</span>
+							</div>
+						))}
+					</div>
+				</div>
+			))}
+		</div>
+	);
+}
+
 // Hidden prefetcher: subscribes to the next 4 years of stateAtYear so that
 // scrubbing forward hits Convex's client cache instead of waiting on a
 // round-trip. Subscriptions are kept alive as long as this component renders.
@@ -609,9 +830,13 @@ function BottomBar({
 	onLive: () => void;
 	onSpeed: (s: number) => void;
 }) {
-	const yearMax = Math.max(maxYear, 60);
+	const yearMax = Math.max(maxYear, 28);
 	const displayYear = scrubYear ?? maxYear;
 	const gatheringYearSet = new Set(gatheringYears);
+	const handleScrub = (y: number) => {
+		if (y >= maxYear) onLive();
+		else onScrub(y);
+	};
 	return (
 		<div className="fixed bottom-0 inset-x-0 bg-stone-900 text-stone-50 z-20 border-t border-stone-700">
 			<div className="mx-auto max-w-7xl px-6 py-2.5 flex flex-wrap items-center gap-6">
@@ -619,9 +844,10 @@ function BottomBar({
 					<button
 						type="button"
 						onClick={onLive}
-						className={`px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] ${liveMode ? "bg-stone-50 text-stone-900" : "border border-stone-600 text-stone-300 hover:bg-stone-800"}`}
+						title={liveMode ? "rolling with live time" : "snap to now"}
+						className={`px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] ${liveMode ? "bg-stone-50 text-stone-900 animate-pulse" : "border border-stone-600 text-stone-300 hover:bg-stone-800"}`}
 					>
-						{liveMode ? "● live" : "live"}
+						{liveMode ? "● live" : "↦ live"}
 					</button>
 					<span className="font-mono text-[10px] uppercase tracking-[0.18em] text-stone-400 tabular-nums">
 						y{displayYear}
@@ -636,8 +862,22 @@ function BottomBar({
 							max={yearMax}
 							step={1}
 							value={displayYear}
-							onChange={(e) => onScrub(Number(e.target.value))}
+							onChange={(e) => handleScrub(Number(e.target.value))}
 							className="w-full accent-stone-50"
+						/>
+						{maxYear < yearMax && (
+							<div
+								className="absolute top-1/2 -translate-y-1/2 h-1 bg-stone-50/10 pointer-events-none"
+								style={{
+									left: `${(maxYear / yearMax) * 100}%`,
+									right: 0,
+								}}
+							/>
+						)}
+						<div
+							className="absolute top-0 bottom-0 w-px bg-stone-50/40 pointer-events-none"
+							style={{ left: `${(maxYear / yearMax) * 100}%` }}
+							aria-hidden
 						/>
 						<div className="relative h-2 -mt-1 pointer-events-none">
 							{Array.from({ length: yearMax + 1 }).map((_, y) => {

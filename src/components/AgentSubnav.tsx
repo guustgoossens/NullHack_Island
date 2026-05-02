@@ -7,6 +7,7 @@ const items: Item[] = [
 	{ to: "/agents/$agentId/brain", label: "Brain" },
 	{ to: "/agents/$agentId/room", label: "Room" },
 	{ to: "/agents/$agentId/portfolio", label: "Portfolio" },
+	{ to: "/agents/$agentId/essays", label: "Essays" },
 	{ to: "/agents/$agentId/feed", label: "Feed" },
 	{ to: "/agents/$agentId/personality", label: "Personality" },
 ];

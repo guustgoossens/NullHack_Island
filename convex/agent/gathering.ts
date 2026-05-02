@@ -358,6 +358,20 @@ async function runGatheringInner(
 		}
 	}
 
+	// ---- Final-year essay on taste ----
+	// At the closing gathering (year 28), each individual writes a personal
+	// essay on taste before they're released to die. Scheduled as separate
+	// actions so they run in parallel and don't block release.
+	if (year >= 28) {
+		for (const p of profiles) {
+			await ctx.scheduler.runAfter(
+				0,
+				internal.agent.gathering.writeEssayOnTaste,
+				{ agentId: p.id, year, gatheringId },
+			);
+		}
+	}
+
 	// ---- Release individuals NOW ----
 	// Their conversations are done and each has a takeaway brain file. They
 	// resume their own lives in parallel — including their next creation phase
@@ -756,3 +770,89 @@ Refresh your three artifacts. End with one sentence on what changed.`;
 
 	return creationPhaseId;
 }
+
+// ---------------- final essay on taste ----------------
+
+const ESSAY_MAX_TOKENS = 1_400;
+
+export const writeEssayOnTaste = internalAction({
+	args: {
+		agentId: v.id("agents"),
+		year: v.number(),
+		gatheringId: v.id("gatherings"),
+	},
+	handler: async (ctx, { agentId, year, gatheringId }) => {
+		const profile = await ctx.runQuery(
+			internal.agent.gathering.loadProfile,
+			{ agentId },
+		);
+		if (!profile) return;
+		const cp = await ctx.runQuery(
+			internal.cohort.getCreationPhaseForYear,
+			{ agentId, year },
+		);
+		if (!cp) return;
+
+		const system = `You are ${profile.name}. You have lived ${year} years and this is your closing essay — a personal essay on taste. First person, your own voice. No academic posture, no manifesto cadence, no list-of-rules. Speak from what you have actually made and rejected and returned to. Write what taste means to you now, at the end. What it cost you. What it gave you. What you mistook for it. What you trust now that you didn't trust at the start. Be specific, not abstract. 6–12 paragraphs of plain prose.`;
+
+		const userMsg = `# Your present self
+
+${profile.brainSummary}
+
+# What you've made (recent)
+
+${profile.recentPortfolio}
+
+# Now
+
+Write your essay on taste. Title it yourself.`;
+
+		const anthropic = getAnthropic();
+		const resp = await anthropic.messages.create({
+			model: profile.model,
+			max_tokens: ESSAY_MAX_TOKENS,
+			system,
+			messages: [{ role: "user", content: userMsg }],
+		});
+		const text = resp.content
+			.filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
+			.map((b) => b.text)
+			.join("\n")
+			.trim();
+		if (!text) return;
+
+		const firstLine = text.split("\n").find((l) => l.trim().length > 0) ?? "";
+		const title = firstLine
+			.replace(/^#+\s*/, "")
+			.replace(/^["'"'\s]+|["'"'\s]+$/g, "")
+			.slice(0, 120) || "On taste";
+		const caption = `Closing essay, year ${year}.`;
+
+		await ctx.runMutation(internal.tools.persist.insertPortfolioItem, {
+			agentId,
+			creationPhaseId: cp._id,
+			year,
+			kind: "created",
+			medium: "essay",
+			title,
+			caption,
+			payload: { kind: "text", text },
+			citedConsumedItemIds: [],
+			status: "ready",
+		});
+
+		const cost = anthropicCostUsd(
+			profile.model,
+			resp.usage.input_tokens,
+			resp.usage.output_tokens,
+		);
+		await ctx.runMutation(internal.cohort.addGatheringCost, {
+			gatheringId,
+			deltaUsd: cost,
+		});
+		await ctx.runMutation(internal.tools.persist.addAgentCost, {
+			agentId,
+			deltaUsd: cost,
+		});
+	},
+});

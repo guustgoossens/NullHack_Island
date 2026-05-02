@@ -19,6 +19,7 @@ import { Route as AgentsAgentIdRoomRouteImport } from './routes/agents/$agentId/
 import { Route as AgentsAgentIdPortfolioRouteImport } from './routes/agents/$agentId/portfolio'
 import { Route as AgentsAgentIdPersonalityRouteImport } from './routes/agents/$agentId/personality'
 import { Route as AgentsAgentIdFeedRouteImport } from './routes/agents/$agentId/feed'
+import { Route as AgentsAgentIdEssaysRouteImport } from './routes/agents/$agentId/essays'
 import { Route as AgentsAgentIdBrainRouteImport } from './routes/agents/$agentId/brain'
 
 const LivesRoute = LivesRouteImport.update({
@@ -72,6 +73,11 @@ const AgentsAgentIdFeedRoute = AgentsAgentIdFeedRouteImport.update({
   path: '/feed',
   getParentRoute: () => AgentsAgentIdRouteRoute,
 } as any)
+const AgentsAgentIdEssaysRoute = AgentsAgentIdEssaysRouteImport.update({
+  id: '/essays',
+  path: '/essays',
+  getParentRoute: () => AgentsAgentIdRouteRoute,
+} as any)
 const AgentsAgentIdBrainRoute = AgentsAgentIdBrainRouteImport.update({
   id: '/brain',
   path: '/brain',
@@ -84,6 +90,7 @@ export interface FileRoutesByFullPath {
   '/lives': typeof LivesRoute
   '/agents/$agentId': typeof AgentsAgentIdRouteRouteWithChildren
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
+  '/agents/$agentId/essays': typeof AgentsAgentIdEssaysRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
   '/agents/$agentId/personality': typeof AgentsAgentIdPersonalityRoute
   '/agents/$agentId/portfolio': typeof AgentsAgentIdPortfolioRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByTo {
   '/island': typeof IslandRoute
   '/lives': typeof LivesRoute
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
+  '/agents/$agentId/essays': typeof AgentsAgentIdEssaysRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
   '/agents/$agentId/personality': typeof AgentsAgentIdPersonalityRoute
   '/agents/$agentId/portfolio': typeof AgentsAgentIdPortfolioRoute
@@ -110,6 +118,7 @@ export interface FileRoutesById {
   '/lives': typeof LivesRoute
   '/agents/$agentId': typeof AgentsAgentIdRouteRouteWithChildren
   '/agents/$agentId/brain': typeof AgentsAgentIdBrainRoute
+  '/agents/$agentId/essays': typeof AgentsAgentIdEssaysRoute
   '/agents/$agentId/feed': typeof AgentsAgentIdFeedRoute
   '/agents/$agentId/personality': typeof AgentsAgentIdPersonalityRoute
   '/agents/$agentId/portfolio': typeof AgentsAgentIdPortfolioRoute
@@ -125,6 +134,7 @@ export interface FileRouteTypes {
     | '/lives'
     | '/agents/$agentId'
     | '/agents/$agentId/brain'
+    | '/agents/$agentId/essays'
     | '/agents/$agentId/feed'
     | '/agents/$agentId/personality'
     | '/agents/$agentId/portfolio'
@@ -137,6 +147,7 @@ export interface FileRouteTypes {
     | '/island'
     | '/lives'
     | '/agents/$agentId/brain'
+    | '/agents/$agentId/essays'
     | '/agents/$agentId/feed'
     | '/agents/$agentId/personality'
     | '/agents/$agentId/portfolio'
@@ -150,6 +161,7 @@ export interface FileRouteTypes {
     | '/lives'
     | '/agents/$agentId'
     | '/agents/$agentId/brain'
+    | '/agents/$agentId/essays'
     | '/agents/$agentId/feed'
     | '/agents/$agentId/personality'
     | '/agents/$agentId/portfolio'
@@ -237,6 +249,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentsAgentIdFeedRouteImport
       parentRoute: typeof AgentsAgentIdRouteRoute
     }
+    '/agents/$agentId/essays': {
+      id: '/agents/$agentId/essays'
+      path: '/essays'
+      fullPath: '/agents/$agentId/essays'
+      preLoaderRoute: typeof AgentsAgentIdEssaysRouteImport
+      parentRoute: typeof AgentsAgentIdRouteRoute
+    }
     '/agents/$agentId/brain': {
       id: '/agents/$agentId/brain'
       path: '/brain'
@@ -249,6 +268,7 @@ declare module '@tanstack/react-router' {
 
 interface AgentsAgentIdRouteRouteChildren {
   AgentsAgentIdBrainRoute: typeof AgentsAgentIdBrainRoute
+  AgentsAgentIdEssaysRoute: typeof AgentsAgentIdEssaysRoute
   AgentsAgentIdFeedRoute: typeof AgentsAgentIdFeedRoute
   AgentsAgentIdPersonalityRoute: typeof AgentsAgentIdPersonalityRoute
   AgentsAgentIdPortfolioRoute: typeof AgentsAgentIdPortfolioRoute
@@ -259,6 +279,7 @@ interface AgentsAgentIdRouteRouteChildren {
 
 const AgentsAgentIdRouteRouteChildren: AgentsAgentIdRouteRouteChildren = {
   AgentsAgentIdBrainRoute: AgentsAgentIdBrainRoute,
+  AgentsAgentIdEssaysRoute: AgentsAgentIdEssaysRoute,
   AgentsAgentIdFeedRoute: AgentsAgentIdFeedRoute,
   AgentsAgentIdPersonalityRoute: AgentsAgentIdPersonalityRoute,
   AgentsAgentIdPortfolioRoute: AgentsAgentIdPortfolioRoute,

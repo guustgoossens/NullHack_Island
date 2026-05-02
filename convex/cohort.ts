@@ -538,9 +538,9 @@ export const releaseAfterGathering = internalMutation({
 				currentYear: nextYear,
 				currentPhaseInYear: 0,
 				nextPhaseAt,
-				status: nextYear >= 60 ? "dead" : a.status,
+				status: nextYear >= 28 ? "dead" : a.status,
 			});
-			if (nextYear < 60 && a.status === "alive") {
+			if (nextYear < 28 && a.status === "alive") {
 				await ctx.scheduler.runAt(
 					nextPhaseAt,
 					internal.agent.tick.tickConsumption,
@@ -566,12 +566,15 @@ export const bumpCommonsYear = internalMutation({
 export const getCreationPhaseForYear = internalQuery({
 	args: { agentId: v.id("agents"), year: v.number() },
 	handler: async (ctx, { agentId, year }) => {
+		// Pick the most recently created phase if duplicates exist for the same
+		// (agent, year). Duplicates can show up if a tick was retried or replayed.
 		const row = await ctx.db
 			.query("creationPhases")
 			.withIndex("by_agent_and_year", (q) =>
 				q.eq("agentId", agentId).eq("year", year),
 			)
-			.unique();
+			.order("desc")
+			.first();
 		return row;
 	},
 });
