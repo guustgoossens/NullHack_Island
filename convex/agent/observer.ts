@@ -60,8 +60,11 @@ export const runObserverPass = internalAction({
 				`- y${p.year} ${p.medium}/${p.kind} "${p.title}" — ${p.caption.slice(0, 200)}`,
 			);
 		}
-		lines.push(`## Brain files touched (${data.brain.length})`);
-		for (const b of data.brain.slice(0, 30)) {
+		const brainFiles = data.brain.filter(
+			(b) => (b.kind ?? "file") === "file",
+		);
+		lines.push(`## Brain files touched (${brainFiles.length})`);
+		for (const b of brainFiles.slice(0, 30)) {
 			lines.push(
 				`- y${b.lastUpdatedYear} ${b.path}: ${b.content.slice(0, 200).replace(/\s+/g, " ")}`,
 			);

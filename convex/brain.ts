@@ -16,6 +16,7 @@ export const tree = query({
 		return live.map((f) => ({
 			_id: f._id,
 			path: f.path,
+			kind: (f.kind ?? "file") as "file" | "folder",
 			currentVersion: f.currentVersion,
 			createdAtYear: f.createdAtYear,
 			lastUpdatedYear: f.lastUpdatedYear,

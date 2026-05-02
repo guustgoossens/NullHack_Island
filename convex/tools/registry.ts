@@ -143,7 +143,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "brain_read",
 		description:
-			"Read the full content of a brain file by path. Use when a file was truncated from your context.",
+			"Read the full content of a brain file by path. Use when a file was truncated from your context. Folders cannot be read — use brain_ls for those.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -154,6 +154,23 @@ export const CONSUME_TOOLS: ToolDef[] = [
 			required: ["path"],
 		},
 	},
+	{
+		name: "brain_ls",
+		description:
+			"List the immediate contents of a brain folder. Pass no path (or empty) to list the root. Returns files and subfolders.",
+		category: "consume",
+		artifactsTouched: [],
+		inputSchema: {
+			type: "object",
+			properties: {
+				path: {
+					type: "string",
+					description:
+						"Folder path to list. Omit or pass empty string for the root.",
+				},
+			},
+		},
+	},
 ];
 
 // CREATE — only available in creation phases.
@@ -161,7 +178,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "brain_write",
 		description:
-			"Create or overwrite a brain file. The brain is your live state of mind, not a journal — name files for what they hold (a stance, a fixation, a current configuration of you), not for the year. Overwrite freely as you change. Slash-delimited paths are allowed for organisation.",
+			"Create or overwrite a brain file. The brain is your live state of mind, not a journal — name files for what they hold (a stance, a fixation, a current configuration of you), not for the year. Overwrite freely as you change. Slash-delimited paths create nested folders implicitly (e.g. \"memories/childhood/dog.md\").",
 		category: "create",
 		artifactsTouched: ["brain"],
 		inputSchema: {
@@ -174,15 +191,49 @@ export const CREATE_TOOLS: ToolDef[] = [
 		},
 	},
 	{
-		name: "brain_delete",
+		name: "brain_mkdir",
 		description:
-			"Delete a brain file. Old versions are preserved in history. Use when a file no longer reflects who you are.",
+			"Create an empty folder in your brain. Useful when you want to reserve a space for a category before filling it. Idempotent — calling twice on the same path is fine.",
 		category: "create",
 		artifactsTouched: ["brain"],
 		inputSchema: {
 			type: "object",
 			properties: {
 				path: { type: "string" },
+			},
+			required: ["path"],
+		},
+	},
+	{
+		name: "brain_move",
+		description:
+			"Rename or move a brain file or folder. Moving a folder renames every entry inside it. Fails if the destination already exists or if you try to move a folder into itself.",
+		category: "create",
+		artifactsTouched: ["brain"],
+		inputSchema: {
+			type: "object",
+			properties: {
+				from: { type: "string", description: "Current path." },
+				to: { type: "string", description: "New path." },
+			},
+			required: ["from", "to"],
+		},
+	},
+	{
+		name: "brain_delete",
+		description:
+			"Delete a brain file or folder. Old versions are preserved in history. To delete a non-empty folder, pass recursive=true.",
+		category: "create",
+		artifactsTouched: ["brain"],
+		inputSchema: {
+			type: "object",
+			properties: {
+				path: { type: "string" },
+				recursive: {
+					type: "boolean",
+					description:
+						"Set to true to delete a folder and everything inside it. Defaults to false.",
+				},
 			},
 			required: ["path"],
 		},
@@ -344,9 +395,11 @@ export const CREATE_TOOLS: ToolDef[] = [
 
 export function toolsForPhase(phase: "consumption" | "creation"): ToolDef[] {
 	if (phase === "consumption") return CONSUME_TOOLS;
-	// Creation phases get create tools + brain_read (read-only consume).
-	const brainRead = CONSUME_TOOLS.filter((t) => t.name === "brain_read");
-	return [...CREATE_TOOLS, ...brainRead];
+	// Creation phases get create tools + brain read/list (read-only consume).
+	const brainReadOnly = CONSUME_TOOLS.filter(
+		(t) => t.name === "brain_read" || t.name === "brain_ls",
+	);
+	return [...CREATE_TOOLS, ...brainReadOnly];
 }
 
 export function toAnthropicTools(tools: ToolDef[]): AnthropicTool[] {

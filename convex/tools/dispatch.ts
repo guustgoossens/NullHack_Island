@@ -195,11 +195,28 @@ async function runTool(
 				);
 				if (!file)
 					return {
-						toolResult: `Brain file "${path}" does not exist.`,
+						toolResult: `Brain entry "${path}" does not exist.`,
 						artifactsTouched: [],
 					};
+				if (file.kind === "folder") {
+					return {
+						toolResult: `"${path}" is a folder, not a file. Use brain_ls to see what's inside.`,
+						artifactsTouched: [],
+					};
+				}
 				return {
 					toolResult: `# ${path} (last touched year ${file.year})\n${file.content}`,
+					artifactsTouched: [],
+				};
+			}
+			case "brain_ls": {
+				const path = toolArgs.path === undefined ? undefined : String(toolArgs.path);
+				const r = await ctx.runQuery(internal.tools.persist.brainLs, {
+					agentId,
+					path,
+				});
+				return {
+					toolResult: formatLs(r),
 					artifactsTouched: [],
 				};
 			}
@@ -224,43 +241,135 @@ async function runTool(
 			});
 			if (!file)
 				return {
-					toolResult: `Brain file "${path}" does not exist.`,
+					toolResult: `Brain entry "${path}" does not exist.`,
 					artifactsTouched: [],
 				};
+			if (file.kind === "folder") {
+				return {
+					toolResult: `"${path}" is a folder, not a file. Use brain_ls to see what's inside.`,
+					artifactsTouched: [],
+				};
+			}
 			return {
 				toolResult: `# ${path} (last touched year ${file.year})\n${file.content}`,
+				artifactsTouched: [],
+			};
+		}
+		case "brain_ls": {
+			const path = toolArgs.path === undefined ? undefined : String(toolArgs.path);
+			const r = await ctx.runQuery(internal.tools.persist.brainLs, {
+				agentId,
+				path,
+			});
+			return {
+				toolResult: formatLs(r),
 				artifactsTouched: [],
 			};
 		}
 		case "brain_write": {
 			const path = String(toolArgs.path ?? "");
 			const content = String(toolArgs.content ?? "");
-			const r = await ctx.runMutation(internal.tools.persist.brainWrite, {
-				agentId,
-				creationPhaseId,
-				year,
-				path,
-				content,
-			});
-			return {
-				toolResult: `Brain ${r.created ? "created" : "updated"}: ${path} (v${r.version}).`,
-				artifactsTouched: ["brain"],
-			};
+			try {
+				const r = await ctx.runMutation(internal.tools.persist.brainWrite, {
+					agentId,
+					creationPhaseId,
+					year,
+					path,
+					content,
+				});
+				return {
+					toolResult: `Brain ${r.created ? "created" : "updated"}: ${path} (v${r.version}).`,
+					artifactsTouched: ["brain"],
+				};
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				return {
+					toolResult: `brain_write failed: ${msg}`,
+					artifactsTouched: [],
+					error: "brain_write_failed",
+				};
+			}
+		}
+		case "brain_mkdir": {
+			const path = String(toolArgs.path ?? "");
+			try {
+				const r = await ctx.runMutation(internal.tools.persist.brainMkdir, {
+					agentId,
+					creationPhaseId,
+					year,
+					path,
+				});
+				return {
+					toolResult: r.alreadyExisted
+						? `Folder already existed: ${path}.`
+						: `Folder created: ${path}.`,
+					artifactsTouched: ["brain"],
+				};
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				return {
+					toolResult: `brain_mkdir failed: ${msg}`,
+					artifactsTouched: [],
+					error: "brain_mkdir_failed",
+				};
+			}
+		}
+		case "brain_move": {
+			const fromPath = String(toolArgs.from ?? toolArgs.fromPath ?? "");
+			const toPath = String(toolArgs.to ?? toolArgs.toPath ?? "");
+			try {
+				const r = await ctx.runMutation(internal.tools.persist.brainMove, {
+					agentId,
+					creationPhaseId,
+					year,
+					fromPath,
+					toPath,
+				});
+				return {
+					toolResult: `Moved ${r.kind} ${fromPath} → ${toPath} (${r.nodesMoved} ${r.nodesMoved === 1 ? "entry" : "entries"} affected).`,
+					artifactsTouched: ["brain"],
+				};
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				return {
+					toolResult: `brain_move failed: ${msg}`,
+					artifactsTouched: [],
+					error: "brain_move_failed",
+				};
+			}
 		}
 		case "brain_delete": {
 			const path = String(toolArgs.path ?? "");
-			const ok = await ctx.runMutation(internal.tools.persist.brainDelete, {
-				agentId,
-				creationPhaseId,
-				year,
-				path,
-			});
-			return {
-				toolResult: ok
-					? `Brain deleted: ${path}.`
-					: `Brain file "${path}" did not exist.`,
-				artifactsTouched: ok ? ["brain"] : [],
-			};
+			const recursive = Boolean(toolArgs.recursive ?? false);
+			try {
+				const r = await ctx.runMutation(internal.tools.persist.brainDelete, {
+					agentId,
+					creationPhaseId,
+					year,
+					path,
+					recursive,
+				});
+				if (!r.deleted) {
+					return {
+						toolResult: `Brain entry "${path}" did not exist.`,
+						artifactsTouched: [],
+					};
+				}
+				return {
+					toolResult:
+						r.nodesRemoved === 1
+							? `Brain deleted: ${path}.`
+							: `Brain deleted: ${path} (${r.nodesRemoved} entries removed).`,
+					artifactsTouched: ["brain"],
+				};
+			} catch (e) {
+				const msg = e instanceof Error ? e.message : String(e);
+				return {
+					toolResult: `brain_delete failed: ${msg}`,
+					artifactsTouched: [],
+					error: "brain_delete_failed",
+				};
+			}
 		}
 		case "room_rewrite": {
 			const prompt = String(toolArgs.prompt ?? "");
@@ -498,6 +607,36 @@ async function runTool(
 				error: "tool_not_available_in_creation",
 			};
 	}
+}
+
+function formatLs(r: {
+	path: string;
+	exists: boolean;
+	entries: Array<{
+		name: string;
+		path: string;
+		kind: "file" | "folder";
+		lastUpdatedYear: number;
+		preview?: string;
+	}>;
+}): string {
+	const label = r.path === "" ? "/" : r.path;
+	if (!r.exists) {
+		return `Folder "${label}" does not exist.`;
+	}
+	if (r.entries.length === 0) {
+		return `${label} (empty)`;
+	}
+	const lines = [`# ${label} (${r.entries.length} ${r.entries.length === 1 ? "entry" : "entries"})`];
+	for (const e of r.entries) {
+		if (e.kind === "folder") {
+			lines.push(`- ${e.name}/  (folder)`);
+		} else {
+			const tail = e.preview ? ` — ${e.preview}` : "";
+			lines.push(`- ${e.name}  (file, y${e.lastUpdatedYear})${tail}`);
+		}
+	}
+	return lines.join("\n");
 }
 
 function mediumForTool(

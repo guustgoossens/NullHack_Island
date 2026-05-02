@@ -10,6 +10,7 @@ export type AgentSnapshot = {
 	agent: Doc<"agents">;
 	brainFilesFull: { path: string; content: string; year: number }[];
 	brainFilesTruncated: { path: string; year: number; preview: string }[];
+	brainFolders: { path: string; year: number }[];
 	currentRoom: Doc<"roomVersions"> | null;
 	recentPortfolio: Doc<"portfolioItems">[];
 	recentConsumedByPhase: {
@@ -21,7 +22,7 @@ export type AgentSnapshot = {
 };
 
 async function loadBrain(ctx: QueryCtx, agentId: Id<"agents">) {
-	// Take up to 200 brain files; prioritize most-recently-touched.
+	// Take up to 200 brain entries; prioritize most-recently-touched.
 	const all = await ctx.db
 		.query("brainFiles")
 		.withIndex("by_agent_and_lastUpdatedYear", (q) =>
@@ -32,8 +33,14 @@ async function loadBrain(ctx: QueryCtx, agentId: Id<"agents">) {
 	const live = all.filter((f) => !f.deleted);
 	const full: { path: string; content: string; year: number }[] = [];
 	const trunc: { path: string; year: number; preview: string }[] = [];
+	const folders: { path: string; year: number }[] = [];
 	let used = 0;
 	for (const f of live) {
+		const kind = f.kind ?? "file";
+		if (kind === "folder") {
+			folders.push({ path: f.path, year: f.lastUpdatedYear });
+			continue;
+		}
 		const cost = f.path.length + f.content.length + 16;
 		if (used + cost <= BRAIN_BUDGET_BYTES) {
 			full.push({
@@ -50,7 +57,8 @@ async function loadBrain(ctx: QueryCtx, agentId: Id<"agents">) {
 			});
 		}
 	}
-	return { full, trunc };
+	folders.sort((a, b) => a.path.localeCompare(b.path));
+	return { full, trunc, folders };
 }
 
 async function loadCurrentRoom(ctx: QueryCtx, agentId: Id<"agents">) {
@@ -134,6 +142,7 @@ export const buildConsumptionContext = internalQuery({
 			agent,
 			brainFilesFull: brain.full,
 			brainFilesTruncated: brain.trunc,
+			brainFolders: brain.folders,
 			currentRoom: room,
 			recentPortfolio: portfolio,
 			recentConsumedByPhase: recentThisYear,
@@ -164,6 +173,7 @@ export const buildCreationContext = internalQuery({
 			agent,
 			brainFilesFull: brain.full,
 			brainFilesTruncated: brain.trunc,
+			brainFolders: brain.folders,
 			currentRoom: room,
 			recentPortfolio: portfolio,
 			recentConsumedByPhase: consumedThisYear,
@@ -207,6 +217,13 @@ export function renderSnapshot(snap: AgentSnapshot, framing: string): string {
 			parts.push(
 				`- ${f.path} (year ${f.year}): ${f.preview.replace(/\s+/g, " ")}…`,
 			);
+		}
+	}
+	if (snap.brainFolders.length > 0) {
+		parts.push("");
+		parts.push(`# Brain — folders (${snap.brainFolders.length})`);
+		for (const f of snap.brainFolders) {
+			parts.push(`- ${f.path}/ (year ${f.year})`);
 		}
 	}
 	parts.push("");

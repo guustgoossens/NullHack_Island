@@ -44,6 +44,126 @@ async function patchCreationFlag(
 	await ctx.db.patch(creationPhaseId, { [field]: true });
 }
 
+// Path utilities. Paths are slash-delimited POSIX-style strings, never with
+// leading/trailing slashes after normalization. Empty path = root (only valid
+// for ls).
+export function normalizeBrainPath(input: string): string {
+	const trimmed = (input ?? "").trim();
+	const stripped = trimmed.replace(/^\/+/, "").replace(/\/+$/, "");
+	if (stripped === "") {
+		throw new Error("path cannot be empty");
+	}
+	const parts = stripped.split("/");
+	for (const p of parts) {
+		if (p === "") throw new Error("path contains empty segment (//)");
+		if (p === "." || p === "..") {
+			throw new Error(`invalid path segment "${p}"`);
+		}
+	}
+	return parts.join("/");
+}
+
+function ancestorPaths(path: string): string[] {
+	// "a/b/c" -> ["a", "a/b"]
+	const parts = path.split("/");
+	const out: string[] = [];
+	for (let i = 1; i < parts.length; i++) {
+		out.push(parts.slice(0, i).join("/"));
+	}
+	return out;
+}
+
+async function lookupNode(
+	ctx: MutationCtx,
+	agentId: Id<"agents">,
+	path: string,
+) {
+	return await ctx.db
+		.query("brainFiles")
+		.withIndex("by_agent_and_path", (q) =>
+			q.eq("agentId", agentId).eq("path", path),
+		)
+		.unique();
+}
+
+async function descendantsUnder(
+	ctx: MutationCtx,
+	agentId: Id<"agents">,
+	path: string,
+) {
+	// Everything strictly below `path` (i.e. matches `path/*` recursively).
+	const lower = `${path}/`;
+	// Range scan via the path index: gte("path/") .. lt("path0") because "0"
+	// (0x30) is the next char after "/" (0x2F).
+	const upper = `${path}0`;
+	return await ctx.db
+		.query("brainFiles")
+		.withIndex("by_agent_and_path", (q) =>
+			q.eq("agentId", agentId).gte("path", lower).lt("path", upper),
+		)
+		.collect();
+}
+
+async function ensureAncestorFolders(
+	ctx: MutationCtx,
+	agentId: Id<"agents">,
+	creationPhaseId: Id<"creationPhases">,
+	year: number,
+	path: string,
+) {
+	for (const a of ancestorPaths(path)) {
+		const existing = await lookupNode(ctx, agentId, a);
+		if (existing && !existing.deleted) {
+			if ((existing.kind ?? "file") === "file") {
+				throw new Error(
+					`cannot create "${path}" — ancestor "${a}" is a file`,
+				);
+			}
+			continue; // folder already exists, ok
+		}
+		if (existing?.deleted) {
+			// Resurrect as folder.
+			const version = existing.currentVersion + 1;
+			await ctx.db.patch(existing._id, {
+				kind: "folder",
+				content: "",
+				currentVersion: version,
+				lastUpdatedYear: year,
+				deleted: false,
+			});
+			await ctx.db.insert("brainFileVersions", {
+				agentId,
+				path: a,
+				version,
+				content: "",
+				year,
+				creationPhaseId,
+				op: "mkdir",
+			});
+			continue;
+		}
+		await ctx.db.insert("brainFiles", {
+			agentId,
+			path: a,
+			kind: "folder",
+			content: "",
+			currentVersion: 1,
+			createdAtYear: year,
+			lastUpdatedYear: year,
+			deleted: false,
+		});
+		await ctx.db.insert("brainFileVersions", {
+			agentId,
+			path: a,
+			version: 1,
+			content: "",
+			year,
+			creationPhaseId,
+			op: "mkdir",
+		});
+	}
+}
+
 export const brainWrite = internalMutation({
 	args: {
 		agentId: v.id("agents"),
@@ -53,28 +173,36 @@ export const brainWrite = internalMutation({
 		content: v.string(),
 	},
 	handler: async (ctx, args): Promise<{ version: number; created: boolean }> => {
-		const existing = await ctx.db
-			.query("brainFiles")
-			.withIndex("by_agent_and_path", (q) =>
-				q.eq("agentId", args.agentId).eq("path", args.path),
-			)
-			.unique();
+		const path = normalizeBrainPath(args.path);
+		const existing = await lookupNode(ctx, args.agentId, path);
+		if (existing && !existing.deleted && (existing.kind ?? "file") === "folder") {
+			throw new Error(`"${path}" is a folder; cannot write file content`);
+		}
+		await ensureAncestorFolders(
+			ctx,
+			args.agentId,
+			args.creationPhaseId,
+			args.year,
+			path,
+		);
 		let version: number;
 		let created: boolean;
 		if (existing) {
 			version = existing.currentVersion + 1;
 			await ctx.db.patch(existing._id, {
+				kind: "file",
 				content: args.content,
 				currentVersion: version,
 				lastUpdatedYear: args.year,
 				deleted: false,
 			});
-			created = false;
+			created = existing.deleted;
 		} else {
 			version = 1;
 			await ctx.db.insert("brainFiles", {
 				agentId: args.agentId,
-				path: args.path,
+				path,
+				kind: "file",
 				content: args.content,
 				currentVersion: version,
 				createdAtYear: args.year,
@@ -85,7 +213,7 @@ export const brainWrite = internalMutation({
 		}
 		await ctx.db.insert("brainFileVersions", {
 			agentId: args.agentId,
-			path: args.path,
+			path,
 			version,
 			content: args.content,
 			year: args.year,
@@ -97,38 +225,233 @@ export const brainWrite = internalMutation({
 	},
 });
 
-export const brainDelete = internalMutation({
+export const brainMkdir = internalMutation({
 	args: {
 		agentId: v.id("agents"),
 		creationPhaseId: v.id("creationPhases"),
 		year: v.number(),
 		path: v.string(),
 	},
-	handler: async (ctx, args): Promise<boolean> => {
-		const existing = await ctx.db
-			.query("brainFiles")
-			.withIndex("by_agent_and_path", (q) =>
-				q.eq("agentId", args.agentId).eq("path", args.path),
-			)
-			.unique();
-		if (!existing || existing.deleted) return false;
-		const version = existing.currentVersion + 1;
-		await ctx.db.patch(existing._id, {
-			deleted: true,
-			currentVersion: version,
-			lastUpdatedYear: args.year,
-		});
-		await ctx.db.insert("brainFileVersions", {
-			agentId: args.agentId,
-			path: args.path,
-			version,
-			content: "",
-			year: args.year,
-			creationPhaseId: args.creationPhaseId,
-			op: "delete",
-		});
+	handler: async (
+		ctx,
+		args,
+	): Promise<{ created: boolean; alreadyExisted: boolean }> => {
+		const path = normalizeBrainPath(args.path);
+		const existing = await lookupNode(ctx, args.agentId, path);
+		if (existing && !existing.deleted) {
+			if ((existing.kind ?? "file") === "file") {
+				throw new Error(`"${path}" is a file; cannot mkdir`);
+			}
+			// Idempotent — folder already there.
+			await patchCreationFlag(ctx, args.creationPhaseId, "brainTouched");
+			return { created: false, alreadyExisted: true };
+		}
+		await ensureAncestorFolders(
+			ctx,
+			args.agentId,
+			args.creationPhaseId,
+			args.year,
+			path,
+		);
+		if (existing?.deleted) {
+			const version = existing.currentVersion + 1;
+			await ctx.db.patch(existing._id, {
+				kind: "folder",
+				content: "",
+				currentVersion: version,
+				lastUpdatedYear: args.year,
+				deleted: false,
+			});
+			await ctx.db.insert("brainFileVersions", {
+				agentId: args.agentId,
+				path,
+				version,
+				content: "",
+				year: args.year,
+				creationPhaseId: args.creationPhaseId,
+				op: "mkdir",
+			});
+		} else {
+			await ctx.db.insert("brainFiles", {
+				agentId: args.agentId,
+				path,
+				kind: "folder",
+				content: "",
+				currentVersion: 1,
+				createdAtYear: args.year,
+				lastUpdatedYear: args.year,
+				deleted: false,
+			});
+			await ctx.db.insert("brainFileVersions", {
+				agentId: args.agentId,
+				path,
+				version: 1,
+				content: "",
+				year: args.year,
+				creationPhaseId: args.creationPhaseId,
+				op: "mkdir",
+			});
+		}
 		await patchCreationFlag(ctx, args.creationPhaseId, "brainTouched");
-		return true;
+		return { created: true, alreadyExisted: false };
+	},
+});
+
+export const brainDelete = internalMutation({
+	args: {
+		agentId: v.id("agents"),
+		creationPhaseId: v.id("creationPhases"),
+		year: v.number(),
+		path: v.string(),
+		recursive: v.optional(v.boolean()),
+	},
+	handler: async (
+		ctx,
+		args,
+	): Promise<{ deleted: boolean; nodesRemoved: number }> => {
+		const path = normalizeBrainPath(args.path);
+		const existing = await lookupNode(ctx, args.agentId, path);
+		if (!existing || existing.deleted) {
+			return { deleted: false, nodesRemoved: 0 };
+		}
+		const kind = existing.kind ?? "file";
+		const tombstone = async (
+			row: typeof existing,
+		): Promise<void> => {
+			const version = row.currentVersion + 1;
+			await ctx.db.patch(row._id, {
+				deleted: true,
+				currentVersion: version,
+				lastUpdatedYear: args.year,
+			});
+			await ctx.db.insert("brainFileVersions", {
+				agentId: args.agentId,
+				path: row.path,
+				version,
+				content: "",
+				year: args.year,
+				creationPhaseId: args.creationPhaseId,
+				op: "delete",
+			});
+		};
+
+		if (kind === "file") {
+			await tombstone(existing);
+			await patchCreationFlag(ctx, args.creationPhaseId, "brainTouched");
+			return { deleted: true, nodesRemoved: 1 };
+		}
+
+		// Folder. Find live descendants.
+		const descendants = (
+			await descendantsUnder(ctx, args.agentId, path)
+		).filter((r) => !r.deleted);
+		if (descendants.length > 0 && !args.recursive) {
+			throw new Error(
+				`folder "${path}" is not empty (${descendants.length} entries) — pass recursive=true to delete it and everything inside`,
+			);
+		}
+		let removed = 0;
+		for (const d of descendants) {
+			await tombstone(d);
+			removed += 1;
+		}
+		await tombstone(existing);
+		removed += 1;
+		await patchCreationFlag(ctx, args.creationPhaseId, "brainTouched");
+		return { deleted: true, nodesRemoved: removed };
+	},
+});
+
+export const brainMove = internalMutation({
+	args: {
+		agentId: v.id("agents"),
+		creationPhaseId: v.id("creationPhases"),
+		year: v.number(),
+		fromPath: v.string(),
+		toPath: v.string(),
+	},
+	handler: async (
+		ctx,
+		args,
+	): Promise<{ moved: boolean; nodesMoved: number; kind: "file" | "folder" }> => {
+		const from = normalizeBrainPath(args.fromPath);
+		const to = normalizeBrainPath(args.toPath);
+		if (from === to) throw new Error("source and destination are the same");
+		if (to === from || to.startsWith(`${from}/`)) {
+			throw new Error("cannot move a folder into itself");
+		}
+		const src = await lookupNode(ctx, args.agentId, from);
+		if (!src || src.deleted) throw new Error(`"${from}" does not exist`);
+		const dst = await lookupNode(ctx, args.agentId, to);
+		if (dst && !dst.deleted) {
+			throw new Error(`destination "${to}" already exists`);
+		}
+		const kind = (src.kind ?? "file") as "file" | "folder";
+		await ensureAncestorFolders(
+			ctx,
+			args.agentId,
+			args.creationPhaseId,
+			args.year,
+			to,
+		);
+
+		const renameOne = async (
+			row: NonNullable<Awaited<ReturnType<typeof lookupNode>>>,
+			newPath: string,
+		): Promise<void> => {
+			// If a deleted row already sits at the destination, supersede it by
+			// deleting it outright (we already verified no live row is there).
+			const existingAtDst = await lookupNode(ctx, args.agentId, newPath);
+			if (existingAtDst) {
+				await ctx.db.delete(existingAtDst._id);
+			}
+			const oldPath = row.path;
+			const version = row.currentVersion + 1;
+			await ctx.db.patch(row._id, {
+				path: newPath,
+				currentVersion: version,
+				lastUpdatedYear: args.year,
+			});
+			await ctx.db.insert("brainFileVersions", {
+				agentId: args.agentId,
+				path: newPath,
+				version,
+				content: row.content,
+				year: args.year,
+				creationPhaseId: args.creationPhaseId,
+				op: "rename",
+				fromPath: oldPath,
+			});
+		};
+
+		if (kind === "file") {
+			await renameOne(src, to);
+			await patchCreationFlag(ctx, args.creationPhaseId, "brainTouched");
+			return { moved: true, nodesMoved: 1, kind: "file" };
+		}
+
+		// Folder: rename src + every descendant.
+		const descendants = await descendantsUnder(ctx, args.agentId, from);
+		// Collision check: confirm none of the *destination* paths collide with
+		// any live row.
+		for (const d of descendants) {
+			const newPath = `${to}/${d.path.slice(from.length + 1)}`;
+			const collision = await lookupNode(ctx, args.agentId, newPath);
+			if (collision && !collision.deleted) {
+				throw new Error(
+					`cannot move: destination "${newPath}" already exists`,
+				);
+			}
+		}
+		await renameOne(src, to);
+		let moved = 1;
+		for (const d of descendants) {
+			const newPath = `${to}/${d.path.slice(from.length + 1)}`;
+			await renameOne(d, newPath);
+			moved += 1;
+		}
+		await patchCreationFlag(ctx, args.creationPhaseId, "brainTouched");
+		return { moved: true, nodesMoved: moved, kind: "folder" };
 	},
 });
 
@@ -137,7 +460,11 @@ export const brainRead = internalQuery({
 	handler: async (
 		ctx,
 		{ agentId, path },
-	): Promise<{ content: string; year: number } | null> => {
+	): Promise<{
+		content: string;
+		year: number;
+		kind: "file" | "folder";
+	} | null> => {
 		const f = await ctx.db
 			.query("brainFiles")
 			.withIndex("by_agent_and_path", (q) =>
@@ -145,7 +472,91 @@ export const brainRead = internalQuery({
 			)
 			.unique();
 		if (!f || f.deleted) return null;
-		return { content: f.content, year: f.lastUpdatedYear };
+		return {
+			content: f.content,
+			year: f.lastUpdatedYear,
+			kind: (f.kind ?? "file") as "file" | "folder",
+		};
+	},
+});
+
+export const brainLs = internalQuery({
+	args: { agentId: v.id("agents"), path: v.optional(v.string()) },
+	handler: async (
+		ctx,
+		{ agentId, path },
+	): Promise<{
+		path: string;
+		exists: boolean;
+		entries: Array<{
+			name: string;
+			path: string;
+			kind: "file" | "folder";
+			lastUpdatedYear: number;
+			preview?: string;
+		}>;
+	}> => {
+		const isRoot = path === undefined || path === "" || path === "/";
+		const normalized = isRoot ? "" : (() => {
+			const trimmed = path.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+			return trimmed;
+		})();
+
+		// Verify the directory exists (root always exists).
+		let exists = isRoot;
+		if (!isRoot) {
+			const node = await ctx.db
+				.query("brainFiles")
+				.withIndex("by_agent_and_path", (q) =>
+					q.eq("agentId", agentId).eq("path", normalized),
+				)
+				.unique();
+			if (node && !node.deleted && (node.kind ?? "file") === "folder") {
+				exists = true;
+			}
+		}
+
+		const lower = isRoot ? "" : `${normalized}/`;
+		const upper = isRoot ? "\u{10FFFF}" : `${normalized}0`;
+		const rows = await ctx.db
+			.query("brainFiles")
+			.withIndex("by_agent_and_path", (q) =>
+				q
+					.eq("agentId", agentId)
+					.gte("path", lower)
+					.lt("path", upper),
+			)
+			.collect();
+
+		const entries: Array<{
+			name: string;
+			path: string;
+			kind: "file" | "folder";
+			lastUpdatedYear: number;
+			preview?: string;
+		}> = [];
+		for (const r of rows) {
+			if (r.deleted) continue;
+			const rel = isRoot ? r.path : r.path.slice(lower.length);
+			if (rel === "" || rel.includes("/")) continue; // not an immediate child
+			const kind = (r.kind ?? "file") as "file" | "folder";
+			entries.push({
+				name: rel,
+				path: r.path,
+				kind,
+				lastUpdatedYear: r.lastUpdatedYear,
+				preview:
+					kind === "file"
+						? r.content.slice(0, 160).replace(/\s+/g, " ")
+						: undefined,
+			});
+		}
+		entries.sort((a, b) => {
+			if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
+			return a.name.localeCompare(b.name);
+		});
+
+		return { path: isRoot ? "" : normalized, exists, entries };
 	},
 });
 

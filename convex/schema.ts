@@ -124,11 +124,16 @@ export default defineSchema({
 		.index("by_agent_and_year", ["agentId", "year"])
 		.index("by_phase", ["consumptionPhaseId"]),
 
-	// Brain — tree as slash-delimited paths. Frontend builds the tree from a flat list.
+	// Brain — tree as slash-delimited paths. Files and folders share the same
+	// table; `kind` discriminates. Folders are markers (no content) so the
+	// agent can create empty buckets and so the tree query knows about them
+	// even when nothing is inside yet.
 	brainFiles: defineTable({
 		agentId: v.id("agents"),
 		path: v.string(),
-		content: v.string(),
+		// Optional for backwards compat — undefined rows are treated as files.
+		kind: v.optional(v.union(v.literal("file"), v.literal("folder"))),
+		content: v.string(), // "" for folders
 		currentVersion: v.number(),
 		createdAtYear: v.number(),
 		lastUpdatedYear: v.number(),
@@ -148,7 +153,11 @@ export default defineSchema({
 			v.literal("create"),
 			v.literal("update"),
 			v.literal("delete"),
+			v.literal("rename"),
+			v.literal("mkdir"),
 		),
+		// For "rename" rows: where the node lived before this op.
+		fromPath: v.optional(v.string()),
 	})
 		.index("by_agent_and_path_and_version", ["agentId", "path", "version"])
 		.index("by_agent_and_year", ["agentId", "year"]),

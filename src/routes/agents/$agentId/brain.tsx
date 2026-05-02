@@ -10,6 +10,7 @@ import { Markdown } from "../../../lib/markdown";
 type BrainEntry = {
 	_id: string;
 	path: string;
+	kind?: "file" | "folder";
 	currentVersion: number;
 	createdAtYear: number;
 	lastUpdatedYear: number;
@@ -44,7 +45,8 @@ function BrainPage() {
 
 	const root = useMemo(() => buildTree(tree ?? []), [tree]);
 
-	const selectedPath = search.path ?? tree?.[0]?.path;
+	const firstFile = (tree ?? []).find((t) => (t.kind ?? "file") === "file");
+	const selectedPath = search.path ?? firstFile?.path;
 	const file = useQuery(
 		api.brain.getFile,
 		selectedPath ? { agentId, path: selectedPath } : "skip",
@@ -61,7 +63,7 @@ function BrainPage() {
 		<main className="mx-auto max-w-6xl px-6 py-8 grid lg:grid-cols-[280px_1fr] gap-8">
 			<aside className="lg:sticky lg:top-[120px] lg:self-start">
 				<div className="font-mono text-[10px] uppercase tracking-[0.2em] text-stone-400 mb-3">
-					{tree?.length ?? 0} files
+					{tree?.length ?? 0} entries
 				</div>
 				<div className="border border-stone-200 bg-white max-h-[70vh] overflow-y-auto">
 					<TreeView
@@ -117,7 +119,8 @@ function BrainFileView({
 		version: number;
 		content: string;
 		year: number;
-		op: "create" | "update" | "delete";
+		op: "create" | "update" | "delete" | "rename" | "mkdir";
+		fromPath?: string;
 	}>;
 	compareVersion: number | undefined;
 	setCompare: (v: number | undefined) => void;
@@ -167,7 +170,9 @@ function BrainFileView({
 										{v.op}
 									</span>
 									<span className="text-stone-600 truncate flex-1">
-										{firstLine(v.content)}
+										{v.op === "rename" && v.fromPath
+											? `← ${v.fromPath}`
+											: firstLine(v.content)}
 									</span>
 									{!isCurrent && (
 										<button
@@ -225,9 +230,9 @@ function TreeView({
 	onSelect: (path: string) => void;
 }) {
 	const children = Array.from(node.children.values()).sort((a, b) => {
-		const aLeaf = a.entry !== undefined && a.children.size === 0;
-		const bLeaf = b.entry !== undefined && b.children.size === 0;
-		if (aLeaf !== bLeaf) return aLeaf ? 1 : -1; // folders first
+		const aIsFolder = isFolderNode(a);
+		const bIsFolder = isFolderNode(b);
+		if (aIsFolder !== bIsFolder) return aIsFolder ? -1 : 1; // folders first
 		return a.name.localeCompare(b.name);
 	});
 	return (
@@ -257,7 +262,8 @@ function TreeRow({
 	onSelect: (path: string) => void;
 }) {
 	const [open, setOpen] = useState(true);
-	const isFile = node.children.size === 0 && node.entry !== undefined;
+	const isFolder = isFolderNode(node);
+	const isFile = !isFolder && node.entry !== undefined;
 	const isSelected = selectedPath === node.fullPath;
 	const indent = { paddingLeft: `${depth * 12 + 10}px` };
 
@@ -328,4 +334,10 @@ function buildTree(entries: BrainEntry[]): TreeNode {
 
 function firstLine(s: string): string {
 	return s.split("\n").find((l) => l.trim() !== "") ?? "";
+}
+
+function isFolderNode(node: TreeNode): boolean {
+	// Explicit folder marker row, OR has children (parent inferred from descendants).
+	if (node.entry?.kind === "folder") return true;
+	return node.children.size > 0;
 }
