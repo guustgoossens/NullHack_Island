@@ -8,7 +8,6 @@ import { useQuery } from "convex/react";
 
 import { api } from "../../../../convex/_generated/api";
 import type { Id } from "../../../../convex/_generated/dataModel";
-import { AgentControls } from "../../../components/AgentControls";
 import { AgentSubnav } from "../../../components/AgentSubnav";
 import { ageOf, formatStatus } from "../../../lib/time";
 
@@ -63,7 +62,6 @@ function AgentLayout() {
 							</span>
 						)}
 					</div>
-					<AgentControls agent={agent} />
 				</div>
 			</section>
 			<AgentSubnav />
