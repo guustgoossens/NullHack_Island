@@ -215,6 +215,25 @@ export const getRoomVersion = internalQuery({
 	},
 });
 
+// Returns the agent's "starting" room — the year-0 render that anchors the
+// camera POV and architecture. Used by the room renderer as the reference
+// image for every subsequent redecoration.
+export const getStartingRoom = internalQuery({
+	args: { agentId: v.id("agents") },
+	handler: async (ctx, { agentId }): Promise<Doc<"roomVersions"> | null> => {
+		const rows = await ctx.db
+			.query("roomVersions")
+			.withIndex("by_agent_and_year", (q) =>
+				q.eq("agentId", agentId).eq("year", 0),
+			)
+			.take(10);
+		// Prefer the row explicitly tagged "starting"; fall back to any year-0
+		// row if the tag is missing (e.g. legacy data).
+		const starting = rows.find((r) => r.origin === "starting");
+		return starting ?? rows[0] ?? null;
+	},
+});
+
 // ---------- portfolio ----------
 
 const portfolioMedium = v.union(
@@ -379,6 +398,30 @@ export const getCreationPhase = internalQuery({
 	},
 });
 
+// Force-flip an artifact's "touched" flag without inserting any artifact row.
+// Used by the creation-phase fallback when the agent fails to touch an artifact
+// after MAX_NUDGES — we want the year to advance, but we don't want to
+// fabricate brain entries or portfolio items the agent didn't actually make.
+export const markArtifactTouched = internalMutation({
+	args: {
+		creationPhaseId: v.id("creationPhases"),
+		artifact: v.union(
+			v.literal("brain"),
+			v.literal("room"),
+			v.literal("portfolio"),
+		),
+	},
+	handler: async (ctx, { creationPhaseId, artifact }) => {
+		const field =
+			artifact === "brain"
+				? "brainTouched"
+				: artifact === "room"
+					? "roomTouched"
+					: "portfolioTouched";
+		await ctx.db.patch(creationPhaseId, { [field]: true });
+	},
+});
+
 // ---------- agent lifecycle ----------
 
 export const advanceAgentClock = internalMutation({
@@ -389,10 +432,13 @@ export const advanceAgentClock = internalMutation({
 	handler: async (ctx, { agentId, nextPhaseAt }) => {
 		const agent = await ctx.db.get(agentId);
 		if (!agent) return;
-		// Advance phase counter. After phase 4 (creation), wrap to 0 of next year.
+		// Advance phase counter. Year = 1 consumption (phase 0) + 1 creation
+		// (phase 1). After phase 1, wrap to phase 0 of next year. Any legacy
+		// agents stuck on a higher phaseInYear (the old 0..4 layout) are
+		// safely wrapped on their next tick.
 		let nextYear = agent.currentYear;
 		let nextPhase = agent.currentPhaseInYear + 1;
-		if (nextPhase > 4) {
+		if (nextPhase > 1) {
 			nextPhase = 0;
 			nextYear += 1;
 		}

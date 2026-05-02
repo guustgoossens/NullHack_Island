@@ -5,13 +5,13 @@ import { internalAction, internalQuery } from "../_generated/server";
 import { getAnthropic, OBSERVER_MODEL } from "../lib/anthropic";
 import { anthropicCostUsd } from "../lib/cost";
 
-const OBSERVER_SYSTEM = `You are an art critic, watching an artist live their life. You read what they consumed, what they made, and what they wrote in their private notes. You name the era they are currently in.
+const OBSERVER_SYSTEM = `You are an outside observer watching someone live their life. You read what they consumed, what they made, and what they wrote in their private notes. Name the chapter they are currently in.
 
-An "era" is a coherent aesthetic chapter — e.g. "Japan / wabi-sabi", "Pointillist", "Vaporwave", "Brutalist architecture", "Late Renaissance fascination", "Mid-century jazz". It can be a movement, a country, a medium, a feeling, or a person — whatever best summarizes them right now. Be specific and evocative.
+A chapter label is a short, specific phrase that captures what is dominant in them right now — it can be a subject, a feeling, a medium, a place, a person, a movement, anything. Whatever best summarises them. Be specific. Avoid generic words. Do not project labels they have not earned from the evidence in front of you.
 
-Output strict JSON: {"label": "<short era>", "summary": "<one or two sentences explaining what defines this era for them>", "confidence": <0.0 to 1.0>}
+Output strict JSON: {"label": "<short label>", "summary": "<one or two sentences on what defines this chapter for them>", "confidence": <0.0 to 1.0>}
 
-The artist never sees this label. You are not writing for them.`;
+They never see this label. You are not writing for them.`;
 
 export const collectYearForObserver = internalQuery({
 	args: { agentId: v.id("agents"), year: v.number() },

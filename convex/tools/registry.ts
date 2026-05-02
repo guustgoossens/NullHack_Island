@@ -17,7 +17,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "wikipedia",
 		description:
-			"Look up a topic on Wikipedia. Returns the article summary + a list of linked topics so you can follow your curiosity.",
+			"Look up a topic on Wikipedia. Returns the article summary + linked topics so you can follow a thread.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -25,7 +25,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 			properties: {
 				topic: {
 					type: "string",
-					description: "Topic title or query, e.g. 'Wabi-sabi'",
+					description: "Topic title or query.",
 				},
 			},
 			required: ["topic"],
@@ -34,7 +34,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "wikipedia_random",
 		description:
-			"Get a random Wikipedia article. Use this when you don't know what you want today and trust serendipity.",
+			"Get a random Wikipedia article.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -45,7 +45,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "web_search",
 		description:
-			"Browse the open web. Returns top results with snippets. Use to find anything beyond Wikipedia: blogs, articles, image collections, manifestos, criticism.",
+			"Search the open web. Returns top results with snippets.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -59,7 +59,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "web_fetch",
 		description:
-			"Fetch a single URL and return its readable text content. Use when a search result looks promising and you want to read it fully.",
+			"Fetch a single URL and return its readable text content.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -73,7 +73,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "image_search",
 		description:
-			"Search for images on the web. Returns image URLs with alt text and source pages.",
+			"Search for images. Returns image URLs with alt text and source pages.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -87,7 +87,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "pinterest_search",
 		description:
-			"Browse Pinterest boards and pins for visual inspiration on a theme.",
+			"Search Pinterest pins. Returns pin images and metadata.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -101,7 +101,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "music_search",
 		description:
-			"Find music — track titles, artists, lyrics. Returns metadata, never audio.",
+			"Search for music. Returns track metadata and lyrics when available; never audio.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -115,7 +115,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "poetry_search",
 		description:
-			"Find poems by author, theme, or era. Returns full poem text when available.",
+			"Search for poems by author or title. Returns full poem text when available.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -129,7 +129,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "arxiv_search",
 		description:
-			"Search arXiv for papers. Useful when your interests turn intellectual.",
+			"Search arXiv for papers. Returns titles and abstracts.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -143,7 +143,7 @@ export const CONSUME_TOOLS: ToolDef[] = [
 	{
 		name: "brain_read",
 		description:
-			"Read the full content of a brain file by path. Useful when a file was truncated from your context.",
+			"Read the full content of a brain file by path. Use when a file was truncated from your context.",
 		category: "consume",
 		artifactsTouched: [],
 		inputSchema: {
@@ -161,7 +161,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "brain_write",
 		description:
-			"Create or overwrite a markdown file in your brain. Use slash-delimited paths like 'obsessions/wabi-sabi.md' or 'journal/y17.md'. Content is your private writing — be honest, opinionated, contradict your past self.",
+			"Create or overwrite a brain file. The brain is your live state of mind, not a journal — name files for what they hold (a stance, a fixation, a current configuration of you), not for the year. Overwrite freely as you change. Slash-delimited paths are allowed for organisation.",
 		category: "create",
 		artifactsTouched: ["brain"],
 		inputSchema: {
@@ -176,7 +176,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "brain_delete",
 		description:
-			"Delete a brain file. Old versions are preserved in history. Use when you have outgrown an idea.",
+			"Delete a brain file. Old versions are preserved in history. Use when a file no longer reflects who you are.",
 		category: "create",
 		artifactsTouched: ["brain"],
 		inputSchema: {
@@ -190,7 +190,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "room_rewrite",
 		description:
-			"Rewrite the prompt for your room. The new prompt is fed to an image model to generate the new room. Make it visual, concrete, and reflective of your current taste.",
+			"Rewrite the interior of your room. Describe what is inside it — furniture, surfaces, objects, art, color, light, what hangs on the walls. The viewpoint, walls, window, floor and dimensions are fixed and will not change; only the interior design does. Be visual and concrete.",
 		category: "create",
 		artifactsTouched: ["room"],
 		inputSchema: {
@@ -204,7 +204,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "portfolio_curate",
 		description:
-			"Save something you have already consumed (a wikipedia article, a poem, a found image, a song) into your portfolio with your own commentary on why it matters. For pinterest_search and image_search items, the first matching image is pinned to your portfolio inline.",
+			"Save something you have already consumed into your portfolio with your own commentary. For pinterest_search and image_search items, the first matching image is pinned to your portfolio inline.",
 		category: "create",
 		artifactsTouched: ["portfolio"],
 		inputSchema: {
@@ -233,7 +233,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "portfolio_create_image",
 		description:
-			"Generate a new image with an image model and add it to your portfolio.",
+			"Generate a new image and add it to your portfolio.",
 		category: "create",
 		artifactsTouched: ["portfolio"],
 		inputSchema: {
@@ -279,7 +279,7 @@ export const CREATE_TOOLS: ToolDef[] = [
 	{
 		name: "portfolio_create_writing",
 		description:
-			"Add an essay, manifesto, or piece of criticism to your portfolio. Distinct from your brain because this is for the public.",
+			"Add a piece of writing to your portfolio. Distinct from your brain — this is for the public.",
 		category: "create",
 		artifactsTouched: ["portfolio"],
 		inputSchema: {
