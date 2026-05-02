@@ -117,6 +117,36 @@ export const loadProfile = internalQuery({
 	},
 });
 
+// Used by the deferred commons synthesis action — re-load everything it needs
+// from the DB so the action can run independently of the conversations action.
+export const loadForSynthesis = internalQuery({
+	args: { gatheringId: v.id("gatherings") },
+	handler: async (
+		ctx,
+		{ gatheringId },
+	): Promise<{
+		gathering: Doc<"gatherings">;
+		cohort: Doc<"cohorts">;
+		participantNames: { id: Id<"agents">; name: string }[];
+		breakouts: Doc<"breakoutRooms">[];
+	} | null> => {
+		const gathering = await ctx.db.get(gatheringId);
+		if (!gathering) return null;
+		const cohort = await ctx.db.get(gathering.cohortId);
+		if (!cohort) return null;
+		const breakouts = await ctx.db
+			.query("breakoutRooms")
+			.withIndex("by_gathering", (q) => q.eq("gatheringId", gatheringId))
+			.collect();
+		const participantNames: { id: Id<"agents">; name: string }[] = [];
+		for (const id of [...cohort.individualIds, cohort.commonsId]) {
+			const a = await ctx.db.get(id);
+			if (a) participantNames.push({ id: a._id, name: a.name });
+		}
+		return { gathering, cohort, participantNames, breakouts };
+	},
+});
+
 // Used by commons synthesis — same shape as `tick.ts` consumes for creation.
 export const loadCommonsContext = internalQuery({
 	args: { commonsId: v.id("agents") },
@@ -328,29 +358,83 @@ async function runGatheringInner(
 		}
 	}
 
-	// ---- Commons synthesis ----
-	await ctx.runMutation(internal.cohort.setGatheringStatus, {
-		gatheringId,
-		status: "synthesizing",
-	});
-	const commonsCreationPhaseId = await runCommonsSynthesis(ctx, {
-		commonsId: cohort.commonsId,
-		year,
-		allRoundTranscripts,
-		nameOf,
-	});
-
-	// ---- Mark complete + release ----
-	await ctx.runMutation(internal.cohort.setGatheringStatus, {
-		gatheringId,
-		status: "completed",
-		commonsCreationPhaseId,
-	});
+	// ---- Release individuals NOW ----
+	// Their conversations are done and each has a takeaway brain file. They
+	// resume their own lives in parallel — including their next creation phase
+	// where, prompted by the new gatherings/y{N}.md note, each can rewrite
+	// their own room based on what they took. We deliberately do NOT keep them
+	// blocked on the commons synthesis below.
 	await ctx.runMutation(internal.cohort.releaseAfterGathering, {
 		cohortId: cohort._id,
 		forYear: year,
 	});
+
+	// ---- Commons synthesis (background) ----
+	// Schedule as a separate action so the conversations action can return
+	// quickly. The synthesis action marks the gathering "completed" when done.
+	await ctx.runMutation(internal.cohort.setGatheringStatus, {
+		gatheringId,
+		status: "synthesizing",
+	});
+	await ctx.scheduler.runAfter(
+		0,
+		internal.agent.gathering.runCommonsSynthesisAction,
+		{ gatheringId },
+	);
 }
+
+// Run the commons synthesis as a standalone action so it executes in
+// parallel with the released individuals. Idempotent-ish: if the gathering
+// is already "completed" we bail. On failure we mark the row failed but
+// don't touch the individuals — they're already living year N+1.
+export const runCommonsSynthesisAction = internalAction({
+	args: { gatheringId: v.id("gatherings") },
+	handler: async (ctx, { gatheringId }) => {
+		try {
+			const data = await ctx.runQuery(
+				internal.agent.gathering.loadForSynthesis,
+				{ gatheringId },
+			);
+			if (!data) return;
+			const { gathering, cohort, participantNames, breakouts } = data;
+			if (gathering.status === "completed") return;
+
+			const nameMap = new Map(
+				participantNames.map((p) => [String(p.id), p.name] as const),
+			);
+			const nameOf = (id: Id<"agents">): string =>
+				nameMap.get(String(id)) ?? "?";
+
+			const allRoundTranscripts = breakouts
+				.sort((a, b) => a.round - b.round)
+				.map((b) => ({
+					round: b.round,
+					participantIds: b.participantIds,
+					utterances: b.transcript,
+				}));
+
+			const commonsCreationPhaseId = await runCommonsSynthesis(ctx, {
+				commonsId: cohort.commonsId,
+				year: gathering.year,
+				allRoundTranscripts,
+				nameOf,
+			});
+
+			await ctx.runMutation(internal.cohort.setGatheringStatus, {
+				gatheringId,
+				status: "completed",
+				commonsCreationPhaseId,
+			});
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			await ctx.runMutation(internal.cohort.setGatheringStatus, {
+				gatheringId,
+				status: "failed",
+				errorMessage: msg,
+			});
+		}
+	},
+});
 
 // ---------------- conversation primitives ----------------
 

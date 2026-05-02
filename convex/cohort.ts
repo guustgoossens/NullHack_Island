@@ -102,6 +102,27 @@ export const islandView = query({
 	},
 });
 
+// Latest emotional reading for each individual in the cohort.
+// Used by the /island emotion-overlay toggle. Commons is excluded — only
+// individuals get observer scoring.
+export const cohortLatestEmotions = query({
+	args: { cohortId: v.id("cohorts") },
+	handler: async (ctx, { cohortId }) => {
+		const cohort = await ctx.db.get(cohortId);
+		if (!cohort) return null;
+		const out: Record<string, Doc<"emotionalReadings"> | null> = {};
+		for (const id of cohort.individualIds) {
+			const rows = await ctx.db
+				.query("emotionalReadings")
+				.withIndex("by_agent_and_year", (q) => q.eq("agentId", id))
+				.order("desc")
+				.take(1);
+			out[id] = rows[0] ?? null;
+		}
+		return out;
+	},
+});
+
 // Per-agent state at a specific year for the scrub view: the room version
 // that was current at year K (most recent roomVersion with year <= K), and
 // the era label that held at year K. Returned shape mirrors the relevant
@@ -216,24 +237,9 @@ export const birthCohort = mutation({
 		const gatheringEveryNYears =
 			args.gatheringEveryNYears ?? DEFAULT_GATHERING_EVERY_N_YEARS;
 
-		// Insert cohort first with placeholder ids; we patch with real ids below.
-		// Convex doesn't have a transactional "insert with self-reference" so we
-		// use a placeholder cohort and stamp `cohortId` on each agent after.
-		const cohortId: Id<"cohorts"> = await ctx.db.insert("cohorts", {
-			name: args.name,
-			individualIds: [],
-			// Patched below — `commonsId` is required, but we don't have one yet.
-			// We use one of the individual ids as a placeholder and immediately
-			// overwrite. To avoid that ugliness we instead spawn the commons FIRST.
-			commonsId: undefined as unknown as Id<"agents">,
-			gatheringEveryNYears,
-			status: "active",
-			createdAt: now,
-		});
-
-		// Spawn the commons. It uses the same `agents` table but with kind=commons,
-		// status="paused" (it never ticks on its own), and no genesis pass — its
-		// "seed" is the gathering experience itself, not a self-authored one.
+		// Spawn the commons FIRST so the cohort row can be inserted with a real
+		// commonsId (the schema requires it). The commons' own cohortId gets
+		// patched in once the cohort row exists.
 		const commonsModel =
 			args.commonsModel && isAgentModel(args.commonsModel)
 				? args.commonsModel
@@ -242,7 +248,6 @@ export const birthCohort = mutation({
 		const commonsId: Id<"agents"> = await ctx.db.insert("agents", {
 			name: commonsName,
 			kind: "commons",
-			cohortId,
 			birthSeed: "",
 			startingRoomPrompt: BLANK_ROOM_PROMPT,
 			genesisStatus: "ready", // skip self-genesis for the commons
@@ -270,6 +275,17 @@ export const birthCohort = mutation({
 		await ctx.scheduler.runAfter(0, internal.tools.render.renderRoomImage, {
 			roomVersionId: commonsRoomId,
 		});
+
+		// Now that we have a real commonsId, insert the cohort row.
+		const cohortId: Id<"cohorts"> = await ctx.db.insert("cohorts", {
+			name: args.name,
+			individualIds: [],
+			commonsId,
+			gatheringEveryNYears,
+			status: "active",
+			createdAt: now,
+		});
+		await ctx.db.patch(commonsId, { cohortId });
 
 		// Spawn the 8 individuals.
 		const individualIds: Id<"agents">[] = [];
@@ -316,11 +332,8 @@ export const birthCohort = mutation({
 			);
 		}
 
-		// Stamp the cohort with the real ids.
-		await ctx.db.patch(cohortId, {
-			individualIds,
-			commonsId,
-		});
+		// Stamp the cohort with the individual ids.
+		await ctx.db.patch(cohortId, { individualIds });
 
 		return cohortId;
 	},
