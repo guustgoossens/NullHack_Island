@@ -44,5 +44,12 @@ export function clampScores(input: unknown): PersonalityScores {
 }
 
 // Hardcoded base prompt for the agent's first room. Used at birth before the
-// agent has rewritten anything.
-export const BLANK_ROOM_PROMPT = `An empty rectangular room with warm beige walls and a smooth ceiling, featuring thick white crown molding and large-scale architectural details. On the left wall, a large white-framed casement window with four panes allows soft, natural light to flood the space. The floor is made of light-toned hardwood planks with a subtle satin finish, bordered by prominent dark wood baseboards that provide a sharp contrast to the neutral walls. The overall atmosphere is clean, bright, and symmetrical, resembling a high-quality interior design "blank canvas".`;
+// agent has rewritten anything. Also serves as the spatial anchor: every
+// subsequent room rewrite is rendered with this image as a visual reference,
+// so POV and geometry stay locked across the lifetime — only interior design
+// changes year over year.
+//
+// The wording here deliberately fixes camera, framing, walls, window, floor,
+// and ceiling, and describes an empty room. The agent's prompt is appended to
+// the *interior* only.
+export const BLANK_ROOM_PROMPT = `An empty rectangular interior, photographed straight-on at standing eye-level. The camera is centered on the back wall and shows the room head-on with a slightly wide lens; the framing is symmetric. Neutral light-beige walls, a smooth white ceiling with thick white crown molding. A single large white-framed casement window with four panes sits on the left wall and floods the space with soft natural daylight. The floor is light-toned hardwood planks with dark wood baseboards. The room is otherwise completely empty: no furniture, no objects, no people. Clean, bright, calm.`;

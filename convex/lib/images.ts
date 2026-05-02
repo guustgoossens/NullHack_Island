@@ -21,25 +21,59 @@ const ASPECT_RATIO: Record<Size, string> = {
 	"1536x1024": "3:2",
 };
 
+function bufToBase64(buf: ArrayBuffer): string {
+	const bytes = new Uint8Array(buf);
+	let bin = "";
+	for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+	// btoa is available in the Convex runtime.
+	return btoa(bin);
+}
+
+type GenerateOpts = {
+	size?: Size;
+	// Optional reference image bytes. When provided, the image model treats it
+	// as a visual anchor (used to lock POV/geometry for room re-decoration).
+	referenceImage?: { bytes: ArrayBuffer; mimeType: string } | null;
+};
+
 /**
  * Generate an image and return raw PNG bytes.
  * Convex storage stores Blobs, so we return ArrayBuffer here and the caller wraps it.
  */
 export async function generateImage(
 	prompt: string,
-	size: Size = "1024x1024",
+	opts: GenerateOpts = {},
 ): Promise<ArrayBuffer> {
 	const ai = getGenAI();
+	const size = opts.size ?? "1024x1024";
+
+	// Multimodal contents: when we have a reference image, send it alongside
+	// the prompt so the model conditions on the visual layout, not just the
+	// text. Otherwise fall back to text-only.
+	const parts: Array<
+		| { text: string }
+		| { inlineData: { mimeType: string; data: string } }
+	> = [];
+	if (opts.referenceImage) {
+		parts.push({
+			inlineData: {
+				mimeType: opts.referenceImage.mimeType,
+				data: bufToBase64(opts.referenceImage.bytes),
+			},
+		});
+	}
+	parts.push({ text: prompt });
+
 	const response = await ai.models.generateContent({
 		model: IMAGE_MODEL,
-		contents: prompt,
+		contents: [{ role: "user", parts }],
 		config: {
 			imageConfig: { aspectRatio: ASPECT_RATIO[size] },
 		},
 	});
 
-	const parts = response.candidates?.[0]?.content?.parts ?? [];
-	for (const part of parts) {
+	const out = response.candidates?.[0]?.content?.parts ?? [];
+	for (const part of out) {
 		const data = part.inlineData?.data;
 		if (data) {
 			const bin = atob(data);
