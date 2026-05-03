@@ -138,15 +138,12 @@ function IslandView({
 	// so hook order stays stable across renders.
 	useEffect(() => {
 		if (scrubYear === null) return;
-		if (scrubYear >= maxYearForEffect) {
-			setScrubYear(null);
-			return;
-		}
+		if (maxYearForEffect <= 0) return;
 		const id = window.setTimeout(() => {
 			setScrubYear((y) => {
 				if (y === null) return null;
 				const next = y + 1;
-				return next >= maxYearForEffect ? null : next;
+				return next > maxYearForEffect ? 0 : next;
 			});
 		}, Math.max(1, speedForEffect) * 1000);
 		return () => window.clearTimeout(id);
