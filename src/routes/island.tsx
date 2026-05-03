@@ -899,9 +899,9 @@ function BottomBar({
 					</span>
 					<input
 						type="range"
-						min={5}
+						min={1}
 						max={120}
-						step={5}
+						step={1}
 						value={speed}
 						onChange={(e) => onSpeed(Number(e.target.value))}
 						className="flex-1 accent-stone-50"
